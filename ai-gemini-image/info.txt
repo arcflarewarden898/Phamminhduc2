@@ -1,0 +1,154 @@
+# AI Gemini Image Generator - Project Documentation
+
+## Tổng quan
+
+Plugin WordPress cho phép người dùng biến đổi ảnh chân dung thành các phong cách nghệ thuật khác nhau sử dụng Google Gemini AI API.
+
+## Cấu trúc thư mục
+
+```
+ai-gemini-image/
+├── ai-gemini-image.php           # File main plugin, autoload các module
+├── readme.txt                     # WordPress plugin readme
+├── info.txt                       # Tài liệu dự án (file này)
+│
+├── inc/                           # Backend code
+│   ├── admin/                     # Admin dashboard
+│   │   ├── menu.php              # Tạo menu admin, dashboard, settings
+│   │   └── credit-manager.php    # Quản lý credit user
+│   │
+│   ├── api/                       # REST API endpoints
+│   │   ├── class-gemini-api.php  # Class xử lý Gemini API
+│   │   ├── preview.php           # API tạo preview
+│   │   ├── unlock.php            # API unlock full image
+│   │   └── credit.php            # API quản lý credit
+│   │
+│   ├── credit/                    # Hệ thống credit
+│   │   ├── functions.php         # Các hàm xử lý credit
+│   │   ├── tables.php            # Quản lý bảng credit
+│   │   └── ajax.php              # AJAX handlers
+│   │
+│   ├── payment/                   # Hệ thống thanh toán
+│   │   ├── vietqr-config.php     # Cấu hình VietQR
+│   │   ├── vietqr-payment.php    # Trang thanh toán
+│   │   └── vietqr-checker.php    # Kiểm tra giao dịch
+│   │
+│   ├── db/                        # Database management
+│   │   ├── install.php           # Tạo bảng khi activate
+│   │   └── cleanup.php           # Cron job cleanup
+│   │
+│   ├── frontend/                  # Frontend UI
+│   │   ├── shortcode-generator.php   # [ai_gemini_generator]
+│   │   ├── shortcode-dashboard.php   # [ai_gemini_dashboard]
+│   │   └── shortcode-credit.php      # [ai_gemini_buy_credit]
+│   │
+│   ├── watermark.php             # Hàm xử lý watermark
+│   └── helpers.php               # Hàm tiện ích dùng chung
+│
+└── assets/                        # Static files
+    ├── css/
+    │   ├── generator.css         # Style cho generator và dashboard
+    │   ├── credit.css            # Style cho trang mua credit
+    │   └── vietqr.css            # Style cho trang thanh toán
+    ├── js/
+    │   └── generator.js          # JavaScript cho image generator
+    └── fonts/
+        └── OpenSans-Bold.ttf     # Font cho watermark (tùy chọn)
+```
+
+## Flow hoạt động
+
+### 1. Tạo ảnh (Generate)
+
+1. User upload ảnh chân dung
+2. Chọn style (anime, cartoon, oil painting, v.v.)
+3. Gọi API `/ai/v1/preview` với base64 image
+4. Server gọi Gemini API để generate
+5. Trả về ảnh có watermark
+6. Lưu vào database với thời hạn 24h
+
+### 2. Unlock ảnh
+
+1. User nhấn "Unlock Full Image"
+2. Kiểm tra credit đủ không
+3. Trừ credit
+4. Trả về ảnh không watermark
+5. Lưu vào database là đã unlock
+
+### 3. Mua credit
+
+1. User chọn gói credit
+2. Tạo order với mã unique
+3. Hiển thị QR VietQR
+4. Polling kiểm tra thanh toán
+5. Khi thanh toán xong, cộng credit
+
+## Database Schema
+
+### Bảng `{prefix}_ai_gemini_guest_credits`
+- id, ip, credits, used_trial, created_at, updated_at
+
+### Bảng `{prefix}_ai_gemini_orders`
+- id, user_id, guest_ip, order_code, amount, credits, status, payment_method, transaction_id, created_at, completed_at
+
+### Bảng `{prefix}_ai_gemini_images`
+- id, user_id, guest_ip, original_image_url, preview_image_url, full_image_url, prompt, style, is_unlocked, credits_used, created_at, expires_at
+
+### Bảng `{prefix}_ai_gemini_transactions`
+- id, user_id, guest_ip, type, amount, balance_after, description, reference_id, created_at
+
+## API Endpoints
+
+- `POST /ai/v1/preview` - Generate preview image
+- `POST /ai/v1/unlock` - Unlock full image
+- `GET /ai/v1/credit` - Get credit balance
+- `GET /ai/v1/credit/packages` - Get credit packages
+- `POST /ai/v1/credit/order` - Create credit order
+- `GET /ai/v1/credit/order/{code}` - Check order status
+- `POST /ai/v1/payment/webhook` - Payment webhook
+
+## Cấu hình
+
+### Gemini API
+- Lấy API key tại: https://aistudio.google.com/apikey
+- Nhập key trong AI Gemini > Settings
+
+### VietQR
+- Cấu hình trong `inc/payment/vietqr-config.php`
+- Hoặc sử dụng options: ai_gemini_vietqr_bank_id, ai_gemini_vietqr_account_no, ai_gemini_vietqr_account_name
+
+### Credit Settings
+- ai_gemini_preview_credit: Số credit cho preview (0 = miễn phí)
+- ai_gemini_unlock_credit: Số credit để unlock (mặc định 1)
+- ai_gemini_free_trial_credits: Credit miễn phí cho user mới
+
+## Hooks và Filters
+
+### Actions
+- `ai_gemini_daily_cleanup` - Cron job dọn dẹp hàng ngày
+
+### Filters
+- `ai_gemini_credit_packages` - Tùy chỉnh gói credit
+- `ai_gemini_vietqr_config` - Tùy chỉnh cấu hình VietQR
+
+## Phát triển Phase 2
+
+### Tính năng dự kiến:
+1. Mission system (hoàn thành nhiệm vụ nhận credit)
+2. Referral program
+3. More payment methods (MoMo, ZaloPay)
+4. Social sharing
+5. Batch processing
+6. API rate limiting
+7. Analytics dashboard
+
+## Bảo trì
+
+### Cleanup tự động
+- Xóa preview chưa unlock sau 24h
+- Xóa order pending sau 7 ngày
+- Xóa guest credits không hoạt động sau 30 ngày
+
+### Backup
+- Backup bảng `ai_gemini_*` định kỳ
+- Backup thư mục `wp-content/uploads/ai-gemini-images/`
