@@ -115,30 +115,76 @@ function ai_gemini_add_diagonal_watermark($image, $text, $font_file, $font_size)
 }
 
 /**
- * Remove watermark from image (for unlocked images)
+ * Get non-watermarked image for unlocked images
  * 
- * Note: This is a placeholder. In a real implementation,
- * you should store the non-watermarked version separately
- * and return that instead of trying to remove watermarks.
+ * This function retrieves the original non-watermarked image that was stored
+ * separately during the initial generation process.
  * 
- * @param string $image_data Binary image data
- * @return string Image data (same as input in this placeholder)
+ * @param int $image_id Image ID from database
+ * @return string|false Binary image data or false if not found
  */
-function ai_gemini_remove_watermark($image_data) {
-    // IMPORTANT: In a production environment, you should:
-    // 1. Store the original (non-watermarked) image separately
-    // 2. Return the stored original when unlocking
-    // 
-    // Programmatically removing watermarks is:
-    // - Technically challenging
-    // - Can degrade image quality
-    // - Not recommended for production use
+function ai_gemini_get_unlocked_image($image_id) {
+    global $wpdb;
     
-    // For now, we return the same image
-    // The proper solution is to regenerate without watermark
-    // or store both versions
+    $table_images = $wpdb->prefix . 'ai_gemini_images';
+    $image = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $table_images WHERE id = %d",
+        $image_id
+    ));
     
-    return $image_data;
+    if (!$image) {
+        return false;
+    }
+    
+    // Get the stored non-watermarked image path
+    $upload_dir = ai_gemini_get_upload_dir();
+    $original_path = $upload_dir['path'] . '/originals/' . basename($image->preview_image_url);
+    $original_path = str_replace('-preview-', '-original-', $original_path);
+    
+    if (file_exists($original_path)) {
+        return file_get_contents($original_path);
+    }
+    
+    // Fallback: regenerate from API if original not stored
+    // This requires re-calling the Gemini API
+    ai_gemini_log("Original image not found for ID: {$image_id}, regeneration required", 'warning');
+    
+    return false;
+}
+
+/**
+ * Store both watermarked and non-watermarked versions during generation
+ * 
+ * @param string $image_data Original binary image data from API
+ * @param string $preview_filename Filename for preview (watermarked) image
+ * @return array Array with 'preview_path' and 'original_path'
+ */
+function ai_gemini_store_image_versions($image_data, $preview_filename) {
+    $upload_dir = ai_gemini_get_upload_dir();
+    
+    // Create originals subdirectory if it doesn't exist
+    $originals_dir = $upload_dir['path'] . '/originals';
+    if (!file_exists($originals_dir)) {
+        wp_mkdir_p($originals_dir);
+        // Add .htaccess to prevent direct access
+        file_put_contents($originals_dir . '/.htaccess', "Deny from all\n");
+    }
+    
+    // Save original (non-watermarked) version in protected directory
+    $original_filename = str_replace('-preview-', '-original-', $preview_filename);
+    $original_path = $originals_dir . '/' . $original_filename;
+    file_put_contents($original_path, $image_data);
+    
+    // Create watermarked preview version
+    $watermarked_data = ai_gemini_add_watermark($image_data);
+    $preview_path = $upload_dir['path'] . '/' . $preview_filename;
+    file_put_contents($preview_path, $watermarked_data);
+    
+    return [
+        'preview_path' => $preview_path,
+        'preview_url' => $upload_dir['url'] . '/' . $preview_filename,
+        'original_path' => $original_path,
+    ];
 }
 
 /**

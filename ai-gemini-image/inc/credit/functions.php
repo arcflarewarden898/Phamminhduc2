@@ -34,7 +34,7 @@ function ai_gemini_give_trial_credits($user_id = null) {
     // Log transaction
     ai_gemini_log_transaction([
         'user_id' => $user_id,
-        'guest_ip' => $user_id ? null : (isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : ''),
+        'guest_ip' => $user_id ? null : (ai_gemini_get_client_ip()),
         'type' => 'free_trial',
         'amount' => $trial_credits,
         'description' => __('Free trial credits', 'ai-gemini-image'),
@@ -74,7 +74,7 @@ function ai_gemini_deduct_credits($cost, $reason, $user_id = null, $reference_id
     // Log transaction
     ai_gemini_log_transaction([
         'user_id' => $user_id,
-        'guest_ip' => $user_id ? null : (isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : ''),
+        'guest_ip' => $user_id ? null : (ai_gemini_get_client_ip()),
         'type' => 'deduction',
         'amount' => -$cost,
         'description' => $reason,
@@ -99,7 +99,7 @@ function ai_gemini_refund_credits($amount, $reason, $user_id = null, $reference_
     // Log transaction
     ai_gemini_log_transaction([
         'user_id' => $user_id,
-        'guest_ip' => $user_id ? null : (isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : ''),
+        'guest_ip' => $user_id ? null : (ai_gemini_get_client_ip()),
         'type' => 'refund',
         'amount' => $amount,
         'description' => $reason,
@@ -130,7 +130,7 @@ function ai_gemini_get_credit_history($user_id = null, $limit = 20, $offset = 0)
             $offset
         ));
     } else {
-        $ip = isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '';
+        $ip = ai_gemini_get_client_ip();
         return $wpdb->get_results($wpdb->prepare(
             "SELECT * FROM $table_transactions WHERE guest_ip = %s ORDER BY created_at DESC LIMIT %d OFFSET %d",
             $ip,
@@ -157,7 +157,7 @@ function ai_gemini_get_total_spent($user_id = null) {
             $user_id
         )));
     } else {
-        $ip = isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '';
+        $ip = ai_gemini_get_client_ip();
         return abs((int) $wpdb->get_var($wpdb->prepare(
             "SELECT SUM(amount) FROM $table_transactions WHERE guest_ip = %s AND amount < 0",
             $ip
@@ -182,7 +182,7 @@ function ai_gemini_get_total_purchased($user_id = null) {
             $user_id
         ));
     } else {
-        $ip = isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '';
+        $ip = ai_gemini_get_client_ip();
         return (int) $wpdb->get_var($wpdb->prepare(
             "SELECT SUM(amount) FROM $table_transactions WHERE guest_ip = %s AND type = 'credit_purchase'",
             $ip

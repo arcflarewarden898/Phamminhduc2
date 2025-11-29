@@ -30,10 +30,8 @@ function ai_gemini_verify_webhook_signature($request) {
     $signature = $request->get_header('X-Webhook-Signature');
     
     if (!$signature) {
-        // For development/testing, allow unsigned requests if debug mode
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            return true;
-        }
+        // Reject all unsigned webhook requests for security
+        ai_gemini_log('Webhook request rejected: missing signature', 'warning');
         return new WP_Error('missing_signature', 'Webhook signature missing', ['status' => 401]);
     }
     

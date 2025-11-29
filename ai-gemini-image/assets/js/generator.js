@@ -162,8 +162,20 @@
             $('#btn-generate .btn-loading').show();
             $('#btn-generate').prop('disabled', true);
             
-            // Extract base64 data
-            var imageData = this.currentImageData.split(',')[1];
+            // Extract base64 data with validation
+            var imageData;
+            if (this.currentImageData && this.currentImageData.indexOf(',') !== -1) {
+                imageData = this.currentImageData.split(',')[1];
+            } else if (this.currentImageData) {
+                // Assume it's already base64 without data URI prefix
+                imageData = this.currentImageData;
+            } else {
+                this.showError(this.config.strings.error_upload || 'Invalid image data');
+                $('#btn-generate .btn-text').show();
+                $('#btn-generate .btn-loading').hide();
+                $('#btn-generate').prop('disabled', false);
+                return;
+            }
             
             // Make API request
             $.ajax({

@@ -28,7 +28,7 @@ add_action('rest_api_init', 'ai_gemini_register_preview_api');
 function ai_gemini_preview_permission_check($request) {
     // Allow guests but check rate limiting
     $user_id = get_current_user_id();
-    $ip = isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '';
+    $ip = ai_gemini_get_client_ip();
     
     // Check if user has credits or free trial available
     $credits = ai_gemini_get_credit($user_id ?: null);
@@ -58,7 +58,7 @@ function ai_gemini_handle_preview_request($request) {
     global $wpdb;
     
     $user_id = get_current_user_id();
-    $ip = isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '';
+    $ip = ai_gemini_get_client_ip();
     
     // Get request parameters
     $image_data = $request->get_param('image');
@@ -124,20 +124,16 @@ function ai_gemini_handle_preview_request($request) {
         );
     }
     
-    // Save generated image
-    $upload_dir = ai_gemini_get_upload_dir();
+    // Save generated image - store both versions (original and watermarked)
     $filename = ai_gemini_generate_filename('preview');
-    $filepath = $upload_dir['path'] . '/' . $filename;
     
-    // Decode and save image
+    // Decode image data
     $image_binary = base64_decode($result['image_data']);
     
-    // Add watermark for preview
-    $image_binary = ai_gemini_add_watermark($image_binary);
+    // Store both watermarked preview and original version
+    $stored = ai_gemini_store_image_versions($image_binary, $filename);
     
-    $saved = file_put_contents($filepath, $image_binary);
-    
-    if (!$saved) {
+    if (!$stored || !file_exists($stored['preview_path'])) {
         return new WP_Error(
             'save_failed',
             __('Failed to save image', 'ai-gemini-image'),
@@ -145,7 +141,7 @@ function ai_gemini_handle_preview_request($request) {
         );
     }
     
-    $preview_url = $upload_dir['url'] . '/' . $filename;
+    $preview_url = $stored['preview_url'];
     
     // Store in database
     $table_images = $wpdb->prefix . 'ai_gemini_images';

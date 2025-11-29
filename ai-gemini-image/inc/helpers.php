@@ -19,7 +19,7 @@ function ai_gemini_get_credit($user_id = null) {
     } else {
         // Guest credit by IP
         global $wpdb;
-        $ip = isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '';
+        $ip = ai_gemini_get_client_ip();
         $table_name = $wpdb->prefix . 'ai_gemini_guest_credits';
         
         $guest = $wpdb->get_row($wpdb->prepare(
@@ -28,6 +28,41 @@ function ai_gemini_get_credit($user_id = null) {
         ));
         return $guest ? (int)$guest->credits : 0;
     }
+}
+
+/**
+ * Get client IP address with proxy support
+ * 
+ * @return string Client IP address
+ */
+function ai_gemini_get_client_ip() {
+    $ip = '';
+    
+    // Check for common proxy headers (in order of preference)
+    $headers = [
+        'HTTP_CF_CONNECTING_IP',     // Cloudflare
+        'HTTP_X_REAL_IP',            // Nginx proxy
+        'HTTP_X_FORWARDED_FOR',      // Standard proxy header
+        'REMOTE_ADDR',               // Direct connection
+    ];
+    
+    foreach ($headers as $header) {
+        if (!empty($_SERVER[$header])) {
+            $ip_list = sanitize_text_field(wp_unslash($_SERVER[$header]));
+            // X-Forwarded-For may contain multiple IPs, get the first one
+            $ips = explode(',', $ip_list);
+            $ip = trim($ips[0]);
+            
+            // Validate IP format
+            if (filter_var($ip, FILTER_VALIDATE_IP)) {
+                break;
+            }
+            $ip = '';
+        }
+    }
+    
+    // Fallback to empty string if no valid IP found
+    return $ip;
 }
 
 /**
@@ -44,7 +79,7 @@ function ai_gemini_update_credit($amount, $user_id = null) {
         return update_user_meta($user_id, 'ai_gemini_credits', $new_balance);
     } else {
         global $wpdb;
-        $ip = isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '';
+        $ip = ai_gemini_get_client_ip();
         $table_name = $wpdb->prefix . 'ai_gemini_guest_credits';
         
         $current = ai_gemini_get_credit(null);
@@ -74,7 +109,7 @@ function ai_gemini_has_used_trial($user_id = null) {
     if ($user_id) {
         return get_user_meta($user_id, 'ai_gemini_used_trial', true) == '1';
     } else {
-        $ip = isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '';
+        $ip = ai_gemini_get_client_ip();
         $table_name = $wpdb->prefix . 'ai_gemini_guest_credits';
         
         $guest = $wpdb->get_row($wpdb->prepare(
@@ -96,7 +131,7 @@ function ai_gemini_mark_trial_used($user_id = null) {
         return update_user_meta($user_id, 'ai_gemini_used_trial', '1');
     } else {
         global $wpdb;
-        $ip = isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '';
+        $ip = ai_gemini_get_client_ip();
         $table_name = $wpdb->prefix . 'ai_gemini_guest_credits';
         
         return $wpdb->update(

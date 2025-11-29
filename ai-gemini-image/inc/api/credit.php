@@ -156,7 +156,7 @@ function ai_gemini_handle_create_order($request) {
     }
     
     $user_id = get_current_user_id();
-    $ip = isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '';
+    $ip = ai_gemini_get_client_ip();
     
     // Generate unique order code
     $order_code = ai_gemini_generate_order_code();

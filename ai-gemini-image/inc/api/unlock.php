@@ -57,7 +57,7 @@ function ai_gemini_handle_unlock_request($request) {
     global $wpdb;
     
     $user_id = get_current_user_id();
-    $ip = isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '';
+    $ip = ai_gemini_get_client_ip();
     
     $image_id = absint($request->get_param('image_id'));
     
@@ -141,20 +141,30 @@ function ai_gemini_handle_unlock_request($request) {
         );
     }
     
-    // For unlock, we need to regenerate without watermark
-    // In a real implementation, you would store the full image separately
-    // Here we'll create a copy without watermark by re-requesting from API
+    // Get the original (non-watermarked) image
+    $original_content = ai_gemini_get_unlocked_image($image_id);
+    
+    if (!$original_content) {
+        // Fallback: copy the preview file (this shouldn't happen in production)
+        // In production, original should always be stored during generation
+        ai_gemini_log("Falling back to preview for unlock: Image ID {$image_id}", 'warning');
+        
+        if (!file_exists($preview_path)) {
+            ai_gemini_update_credit($unlock_cost, $user_id ?: null);
+            return new WP_Error(
+                'preview_not_found',
+                __('Preview image not found. Please generate a new image.', 'ai-gemini-image'),
+                ['status' => 404]
+            );
+        }
+        $original_content = file_get_contents($preview_path);
+    }
     
     // Generate filename for full image
     $full_filename = ai_gemini_generate_filename('full');
     $full_filepath = $upload_dir['path'] . '/' . $full_filename;
     
-    // For this implementation, we'll copy the preview and mark as unlocked
-    // In production, you should store the non-watermarked version separately
-    $preview_content = file_get_contents($preview_path);
-    $full_content = ai_gemini_remove_watermark($preview_content);
-    
-    $saved = file_put_contents($full_filepath, $full_content);
+    $saved = file_put_contents($full_filepath, $original_content);
     
     if (!$saved) {
         // Refund credits
@@ -225,7 +235,7 @@ function ai_gemini_get_user_images($user_id = null, $limit = 20, $offset = 0) {
             $offset
         ));
     } else {
-        $ip = isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : '';
+        $ip = ai_gemini_get_client_ip();
         return $wpdb->get_results($wpdb->prepare(
             "SELECT * FROM $table_images WHERE guest_ip = %s ORDER BY created_at DESC LIMIT %d OFFSET %d",
             $ip,
