@@ -24,6 +24,7 @@ $ai_gemini_includes = [
     // Admin
     'inc/admin/menu.php',
     'inc/admin/credit-manager.php',
+    'inc/admin/prompt-manager.php',
     
     // API
     'inc/api/class-gemini-api.php',

@@ -125,23 +125,49 @@ class AI_GEMINI_API {
     /**
      * Build the full prompt with style modifiers
      * 
-     * @param string $prompt Base prompt
+     * @param string $prompt Custom prompt from user
      * @param string $style Style preset name
      * @return string Full prompt
      */
     private function build_prompt($prompt, $style = '') {
-        $style_prompts = [
-            'anime' => 'Transform this portrait photo into high-quality anime art style. Keep the person recognizable but apply anime aesthetics with vibrant colors, smooth skin, and expressive eyes.',
-            'cartoon' => 'Transform this portrait photo into a Disney/Pixar style 3D cartoon character. Maintain likeness while applying cartoon aesthetics.',
-            'oil_painting' => 'Transform this portrait photo into a classical oil painting style, reminiscent of Renaissance masters. Rich colors and dramatic lighting.',
-            'watercolor' => 'Transform this portrait photo into a beautiful watercolor painting with soft edges, flowing colors, and artistic brush strokes.',
-            'sketch' => 'Transform this portrait photo into a detailed pencil sketch with professional shading and artistic linework.',
-            'pop_art' => 'Transform this portrait photo into bold pop art style like Andy Warhol, with vibrant colors and high contrast.',
-            'cyberpunk' => 'Transform this portrait photo into cyberpunk style with neon colors, futuristic elements, and high-tech aesthetic.',
-            'fantasy' => 'Transform this portrait photo into a fantasy style portrait with magical elements, ethereal lighting, and mystical atmosphere.',
-        ];
+        // Try to get prompt from database first
+        $style_prompt = '';
+        if (!empty($style) && function_exists('ai_gemini_get_prompt_text')) {
+            $style_prompt = ai_gemini_get_prompt_text($style);
+        }
         
-        $base_prompt = isset($style_prompts[$style]) ? $style_prompts[$style] : $prompt;
+        // Fallback to hardcoded prompts if database not available
+        if (empty($style_prompt)) {
+            $style_prompts = [
+                'anime' => 'Transform this portrait photo into high-quality anime art style. Keep the person recognizable but apply anime aesthetics with vibrant colors, smooth skin, and expressive eyes.',
+                'cartoon' => 'Transform this portrait photo into a Disney/Pixar style 3D cartoon character. Maintain likeness while applying cartoon aesthetics.',
+                'oil_painting' => 'Transform this portrait photo into a classical oil painting style, reminiscent of Renaissance masters. Rich colors and dramatic lighting.',
+                'watercolor' => 'Transform this portrait photo into a beautiful watercolor painting with soft edges, flowing colors, and artistic brush strokes.',
+                'sketch' => 'Transform this portrait photo into a detailed pencil sketch with professional shading and artistic linework.',
+                'pop_art' => 'Transform this portrait photo into bold pop art style like Andy Warhol, with vibrant colors and high contrast.',
+                'cyberpunk' => 'Transform this portrait photo into cyberpunk style with neon colors, futuristic elements, and high-tech aesthetic.',
+                'fantasy' => 'Transform this portrait photo into a fantasy style portrait with magical elements, ethereal lighting, and mystical atmosphere.',
+            ];
+            
+            $style_prompt = isset($style_prompts[$style]) ? $style_prompts[$style] : '';
+        }
+        
+        // Build final prompt combining style and custom prompt
+        $base_prompt = $style_prompt;
+        
+        // If user provided a custom prompt, append it
+        if (!empty($prompt)) {
+            if (!empty($base_prompt)) {
+                $base_prompt .= ' Additional instructions: ' . $prompt;
+            } else {
+                $base_prompt = $prompt;
+            }
+        }
+        
+        // Fallback if no prompt at all
+        if (empty($base_prompt)) {
+            $base_prompt = 'Transform this image artistically while maintaining the subject\'s features.';
+        }
         
         // Add safety and quality instructions
         $base_prompt .= ' Ensure the output is high quality, artistic, and appropriate for all audiences.';
@@ -246,9 +272,23 @@ class AI_GEMINI_API {
     /**
      * Get available style presets
      * 
-     * @return array Array of style preset options
+     * @return array Array of style preset options (key => name)
      */
     public static function get_styles() {
+        // Try to get styles from database first
+        if (function_exists('ai_gemini_get_prompts')) {
+            $prompts = ai_gemini_get_prompts(true);
+            
+            if (!empty($prompts)) {
+                $styles = [];
+                foreach ($prompts as $prompt) {
+                    $styles[$prompt->prompt_key] = $prompt->prompt_name;
+                }
+                return $styles;
+            }
+        }
+        
+        // Fallback to hardcoded styles if database not available
         return [
             'anime' => __('Anime', 'ai-gemini-image'),
             'cartoon' => __('3D Cartoon', 'ai-gemini-image'),

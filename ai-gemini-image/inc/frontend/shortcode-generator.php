@@ -93,8 +93,9 @@ function ai_gemini_generator_shortcode($atts) {
             </div>
             <?php endif; ?>
             
-            <div class="prompt-section" style="display: none;">
+            <div class="prompt-section">
                 <label for="custom-prompt"><?php esc_html_e('Custom Prompt (Optional):', 'ai-gemini-image'); ?></label>
+                <p class="prompt-description"><?php esc_html_e('Add additional instructions to customize your image transformation.', 'ai-gemini-image'); ?></p>
                 <textarea id="custom-prompt" placeholder="<?php esc_attr_e('Add additional instructions for the AI...', 'ai-gemini-image'); ?>"></textarea>
             </div>
             

@@ -90,17 +90,130 @@ function ai_gemini_install_tables() {
         KEY created_at (created_at)
     ) $charset_collate;";
     
+    // Prompts table for managing style prompts
+    $table_prompts = $wpdb->prefix . 'ai_gemini_prompts';
+    $sql_prompts = "CREATE TABLE IF NOT EXISTS $table_prompts (
+        id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+        prompt_key varchar(50) NOT NULL,
+        prompt_name varchar(100) NOT NULL,
+        prompt_text text NOT NULL,
+        description text,
+        is_active tinyint(1) NOT NULL DEFAULT 1,
+        display_order int(11) NOT NULL DEFAULT 0,
+        created_at datetime DEFAULT CURRENT_TIMESTAMP,
+        updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY prompt_key (prompt_key),
+        KEY is_active (is_active),
+        KEY display_order (display_order)
+    ) $charset_collate;";
+    
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
     
     dbDelta($sql_guest_credits);
     dbDelta($sql_orders);
     dbDelta($sql_images);
     dbDelta($sql_transactions);
+    dbDelta($sql_prompts);
+    
+    // Seed default prompts if table is empty
+    ai_gemini_seed_default_prompts();
     
     // Set plugin version
     update_option('ai_gemini_db_version', AI_GEMINI_VERSION);
     
     ai_gemini_log('Database tables installed successfully', 'info');
+}
+
+/**
+ * Seed default prompts
+ */
+function ai_gemini_seed_default_prompts() {
+    global $wpdb;
+    
+    $table_prompts = $wpdb->prefix . 'ai_gemini_prompts';
+    
+    // Check if prompts already exist
+    $count = $wpdb->get_var("SELECT COUNT(*) FROM $table_prompts");
+    if ($count > 0) {
+        return;
+    }
+    
+    $default_prompts = [
+        [
+            'prompt_key' => 'anime',
+            'prompt_name' => 'Anime',
+            'prompt_text' => 'Transform this portrait photo into high-quality anime art style. Keep the person recognizable but apply anime aesthetics with vibrant colors, smooth skin, and expressive eyes.',
+            'description' => 'Japanese animation style with vibrant colors and expressive features',
+            'display_order' => 1,
+        ],
+        [
+            'prompt_key' => 'cartoon',
+            'prompt_name' => '3D Cartoon',
+            'prompt_text' => 'Transform this portrait photo into a Disney/Pixar style 3D cartoon character. Maintain likeness while applying cartoon aesthetics.',
+            'description' => 'Disney/Pixar inspired 3D cartoon style',
+            'display_order' => 2,
+        ],
+        [
+            'prompt_key' => 'oil_painting',
+            'prompt_name' => 'Oil Painting',
+            'prompt_text' => 'Transform this portrait photo into a classical oil painting style, reminiscent of Renaissance masters. Rich colors and dramatic lighting.',
+            'description' => 'Classical oil painting with Renaissance master aesthetics',
+            'display_order' => 3,
+        ],
+        [
+            'prompt_key' => 'watercolor',
+            'prompt_name' => 'Watercolor',
+            'prompt_text' => 'Transform this portrait photo into a beautiful watercolor painting with soft edges, flowing colors, and artistic brush strokes.',
+            'description' => 'Soft watercolor painting with artistic brush strokes',
+            'display_order' => 4,
+        ],
+        [
+            'prompt_key' => 'sketch',
+            'prompt_name' => 'Pencil Sketch',
+            'prompt_text' => 'Transform this portrait photo into a detailed pencil sketch with professional shading and artistic linework.',
+            'description' => 'Detailed pencil sketch with professional shading',
+            'display_order' => 5,
+        ],
+        [
+            'prompt_key' => 'pop_art',
+            'prompt_name' => 'Pop Art',
+            'prompt_text' => 'Transform this portrait photo into bold pop art style like Andy Warhol, with vibrant colors and high contrast.',
+            'description' => 'Andy Warhol inspired pop art with bold colors',
+            'display_order' => 6,
+        ],
+        [
+            'prompt_key' => 'cyberpunk',
+            'prompt_name' => 'Cyberpunk',
+            'prompt_text' => 'Transform this portrait photo into cyberpunk style with neon colors, futuristic elements, and high-tech aesthetic.',
+            'description' => 'Futuristic cyberpunk with neon and high-tech aesthetics',
+            'display_order' => 7,
+        ],
+        [
+            'prompt_key' => 'fantasy',
+            'prompt_name' => 'Fantasy',
+            'prompt_text' => 'Transform this portrait photo into a fantasy style portrait with magical elements, ethereal lighting, and mystical atmosphere.',
+            'description' => 'Magical fantasy style with ethereal lighting',
+            'display_order' => 8,
+        ],
+    ];
+    
+    foreach ($default_prompts as $prompt) {
+        $wpdb->insert(
+            $table_prompts,
+            [
+                'prompt_key' => $prompt['prompt_key'],
+                'prompt_name' => $prompt['prompt_name'],
+                'prompt_text' => $prompt['prompt_text'],
+                'description' => $prompt['description'],
+                'is_active' => 1,
+                'display_order' => $prompt['display_order'],
+                'created_at' => current_time('mysql'),
+                'updated_at' => current_time('mysql'),
+            ],
+            ['%s', '%s', '%s', '%s', '%d', '%d', '%s', '%s']
+        );
+    }
 }
 
 /**
