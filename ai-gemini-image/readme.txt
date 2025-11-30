@@ -30,6 +30,8 @@ AI Gemini Image Generator is a WordPress plugin that allows users to transform t
 * `[ai_gemini_generator]` - Display the image generation form
 * `[ai_gemini_dashboard]` - Display user dashboard with history
 * `[ai_gemini_buy_credit]` - Display credit purchase page
+* `[ai_gemini_missions]` - Display missions list for earning free credits
+* `[ai_gemini_mission_code mission_id="X"]` - Display live TOTP code for a mission (embed on target website)
 
 == Installation ==
 
@@ -85,6 +87,8 @@ Yes, guests can use the plugin with IP-based credit tracking.
 * Credit system
 * VietQR payment integration
 * Admin dashboard
+* Mission system for earning free credits
+* TOTP-based code verification
 
 == Upgrade Notice ==
 

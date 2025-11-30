@@ -24,17 +24,24 @@ $ai_gemini_includes = [
     // Admin
     'inc/admin/menu.php',
     'inc/admin/credit-manager.php',
+    'inc/admin/mission-manager.php',
     
     // API
     'inc/api/class-gemini-api.php',
     'inc/api/preview.php',
     'inc/api/unlock.php',
     'inc/api/credit.php',
+    'inc/api/mission.php',
     
     // Credit System
     'inc/credit/functions.php',
     'inc/credit/tables.php',
     'inc/credit/ajax.php',
+    
+    // Mission System
+    'inc/mission/totp.php',
+    'inc/mission/functions.php',
+    'inc/mission/ajax.php',
     
     // Payment
     'inc/payment/vietqr-config.php',
@@ -45,6 +52,7 @@ $ai_gemini_includes = [
     'inc/frontend/shortcode-generator.php',
     'inc/frontend/shortcode-dashboard.php',
     'inc/frontend/shortcode-credit.php',
+    'inc/frontend/shortcode-missions.php',
     
     // Utilities
     'inc/watermark.php',

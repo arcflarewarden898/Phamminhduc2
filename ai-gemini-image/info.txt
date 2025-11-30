@@ -15,18 +15,25 @@ ai-gemini-image/
 ├── inc/                           # Backend code
 │   ├── admin/                     # Admin dashboard
 │   │   ├── menu.php              # Tạo menu admin, dashboard, settings
-│   │   └── credit-manager.php    # Quản lý credit user
+│   │   ├── credit-manager.php    # Quản lý credit user
+│   │   └── mission-manager.php   # Quản lý missions
 │   │
 │   ├── api/                       # REST API endpoints
 │   │   ├── class-gemini-api.php  # Class xử lý Gemini API
 │   │   ├── preview.php           # API tạo preview
 │   │   ├── unlock.php            # API unlock full image
-│   │   └── credit.php            # API quản lý credit
+│   │   ├── credit.php            # API quản lý credit
+│   │   └── mission.php           # API missions
 │   │
 │   ├── credit/                    # Hệ thống credit
 │   │   ├── functions.php         # Các hàm xử lý credit
 │   │   ├── tables.php            # Quản lý bảng credit
 │   │   └── ajax.php              # AJAX handlers
+│   │
+│   ├── mission/                   # Hệ thống missions
+│   │   ├── totp.php              # TOTP (Time-based OTP) system
+│   │   ├── functions.php         # Các hàm xử lý missions
+│   │   └── ajax.php              # AJAX handlers cho missions
 │   │
 │   ├── payment/                   # Hệ thống thanh toán
 │   │   ├── vietqr-config.php     # Cấu hình VietQR
@@ -40,7 +47,8 @@ ai-gemini-image/
 │   ├── frontend/                  # Frontend UI
 │   │   ├── shortcode-generator.php   # [ai_gemini_generator]
 │   │   ├── shortcode-dashboard.php   # [ai_gemini_dashboard]
-│   │   └── shortcode-credit.php      # [ai_gemini_buy_credit]
+│   │   ├── shortcode-credit.php      # [ai_gemini_buy_credit]
+│   │   └── shortcode-missions.php    # [ai_gemini_missions]
 │   │
 │   ├── watermark.php             # Hàm xử lý watermark
 │   └── helpers.php               # Hàm tiện ích dùng chung
@@ -49,9 +57,11 @@ ai-gemini-image/
     ├── css/
     │   ├── generator.css         # Style cho generator và dashboard
     │   ├── credit.css            # Style cho trang mua credit
-    │   └── vietqr.css            # Style cho trang thanh toán
+    │   ├── vietqr.css            # Style cho trang thanh toán
+    │   └── missions.css          # Style cho trang missions
     ├── js/
-    │   └── generator.js          # JavaScript cho image generator
+    │   ├── generator.js          # JavaScript cho image generator
+    │   └── missions.js           # JavaScript cho missions
     └── fonts/
         └── OpenSans-Bold.ttf     # Font cho watermark (tùy chọn)
 ```
@@ -83,6 +93,21 @@ ai-gemini-image/
 4. Polling kiểm tra thanh toán
 5. Khi thanh toán xong, cộng credit
 
+### 4. Mission System (Kiếm credit miễn phí)
+
+1. Admin tạo mission với codes trong Admin Panel
+2. Hệ thống tự động generate TOTP secret cho mỗi code
+3. Website đích hiển thị code: `[STATIC_CODE]-[TOTP_6_DIGITS]`
+4. User copy code và paste vào trang missions
+5. Hệ thống verify: static code + TOTP còn hạn (15 phút window)
+6. Nếu đúng: cộng credit, log completion
+
+#### TOTP (Time-based One-Time Password)
+- Sử dụng thuật toán HMAC-SHA1
+- Time step: 900 giây (15 phút)
+- Window: ±1 time step (cho phép sai lệch đồng hồ)
+- Format code: `STATICCODE-123456`
+
 ## Database Schema
 
 ### Bảng `{prefix}_ai_gemini_guest_credits`
@@ -97,14 +122,35 @@ ai-gemini-image/
 ### Bảng `{prefix}_ai_gemini_transactions`
 - id, user_id, guest_ip, type, amount, balance_after, description, reference_id, created_at
 
+### Bảng `{prefix}_ai_gemini_missions`
+- id, mission_key (unique), title, description, reward_credits, mission_type (enum), target_url, code_hint, is_active, max_completions, cooldown_hours, created_at, updated_at
+
+### Bảng `{prefix}_ai_gemini_mission_codes`
+- id, mission_id (FK), code, totp_secret, is_active, created_at, expires_at
+
+### Bảng `{prefix}_ai_gemini_mission_completions`
+- id, mission_id (FK), user_id, guest_ip, code_used, credits_earned, completed_at
+
 ## API Endpoints
 
+### Image Generation
 - `POST /ai/v1/preview` - Generate preview image
 - `POST /ai/v1/unlock` - Unlock full image
+
+### Credit Management
 - `GET /ai/v1/credit` - Get credit balance
 - `GET /ai/v1/credit/packages` - Get credit packages
 - `POST /ai/v1/credit/order` - Create credit order
 - `GET /ai/v1/credit/order/{code}` - Check order status
+
+### Missions
+- `GET /ai/v1/missions` - Get active missions
+- `GET /ai/v1/missions/{id}` - Get single mission
+- `POST /ai/v1/missions/{id}/verify` - Verify code and complete mission
+- `GET /ai/v1/missions/history` - Get user's mission history
+- `GET /ai/v1/missions/{id}/totp` - Get current TOTP code (for embedding)
+
+### Payment
 - `POST /ai/v1/payment/webhook` - Payment webhook
 
 ## Cấu hình
@@ -133,14 +179,17 @@ ai-gemini-image/
 
 ## Phát triển Phase 2
 
+### Tính năng đã hoàn thành:
+1. ✅ Mission system (hoàn thành nhiệm vụ nhận credit)
+2. ✅ TOTP-based code verification
+
 ### Tính năng dự kiến:
-1. Mission system (hoàn thành nhiệm vụ nhận credit)
-2. Referral program
-3. More payment methods (MoMo, ZaloPay)
-4. Social sharing
-5. Batch processing
-6. API rate limiting
-7. Analytics dashboard
+1. Referral program
+2. More payment methods (MoMo, ZaloPay)
+3. Social sharing missions
+4. Batch processing
+5. API rate limiting
+6. Analytics dashboard
 
 ## Bảo trì
 
