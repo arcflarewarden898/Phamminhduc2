@@ -8,31 +8,61 @@
 if (!defined('ABSPATH')) exit;
 
 /**
- * Render prompt manager page
+ * Handle prompt manager actions before page output
  */
-function ai_gemini_prompt_manager_page() {
-    global $wpdb;
+function ai_gemini_prompt_manager_init() {
+    if (!isset($_GET['page']) || $_GET['page'] !== 'ai-gemini-prompts') {
+        return;
+    }
     
-    $table_prompts = $wpdb->prefix . 'ai_gemini_prompts';
-    $action = isset($_GET['action']) ? sanitize_text_field(wp_unslash($_GET['action'])) : 'list';
-    $prompt_id = isset($_GET['prompt_id']) ? absint($_GET['prompt_id']) : 0;
-    
-    // Handle form submissions
+    // Handle add/update redirect
     if (isset($_POST['ai_gemini_save_prompt']) && check_admin_referer('ai_gemini_prompt_action')) {
-        ai_gemini_handle_prompt_save();
+        $result = ai_gemini_handle_prompt_save();
+        if ($result === 'added') {
+            wp_safe_redirect(admin_url('admin.php?page=ai-gemini-prompts&message=added'));
+            exit;
+        }
     }
     
+    // Handle delete redirect
     if (isset($_POST['ai_gemini_delete_prompt']) && check_admin_referer('ai_gemini_prompt_action')) {
-        ai_gemini_handle_prompt_delete();
+        $result = ai_gemini_handle_prompt_delete();
+        if ($result) {
+            wp_safe_redirect(admin_url('admin.php?page=ai-gemini-prompts&message=deleted'));
+            exit;
+        }
     }
     
+    // Handle toggle
+    $prompt_id = isset($_GET['prompt_id']) ? absint($_GET['prompt_id']) : 0;
     if (isset($_GET['action']) && $_GET['action'] === 'toggle' && check_admin_referer('ai_gemini_toggle_prompt')) {
         ai_gemini_handle_prompt_toggle($prompt_id);
     }
+}
+add_action('admin_init', 'ai_gemini_prompt_manager_init');
+
+/**
+ * Render prompt manager page
+ */
+function ai_gemini_prompt_manager_page() {
+    $action = isset($_GET['action']) ? sanitize_text_field(wp_unslash($_GET['action'])) : 'list';
+    $prompt_id = isset($_GET['prompt_id']) ? absint($_GET['prompt_id']) : 0;
+    $message = isset($_GET['message']) ? sanitize_text_field(wp_unslash($_GET['message'])) : '';
     
     ?>
     <div class="wrap">
         <h1 class="wp-heading-inline"><?php esc_html_e('Prompt Manager', 'ai-gemini-image'); ?></h1>
+        
+        <?php
+        // Show success messages
+        if ($message === 'added') {
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Prompt added successfully!', 'ai-gemini-image') . '</p></div>';
+        } elseif ($message === 'deleted') {
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Prompt deleted successfully!', 'ai-gemini-image') . '</p></div>';
+        } elseif ($message === 'toggled') {
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Prompt status updated!', 'ai-gemini-image') . '</p></div>';
+        }
+        ?>
         
         <?php if ($action === 'list') : ?>
             <a href="<?php echo esc_url(add_query_arg('action', 'add')); ?>" class="page-title-action">
@@ -53,7 +83,8 @@ function ai_gemini_render_prompt_list() {
     global $wpdb;
     
     $table_prompts = $wpdb->prefix . 'ai_gemini_prompts';
-    $prompts = $wpdb->get_results("SELECT * FROM $table_prompts ORDER BY display_order ASC, id ASC");
+    // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is safely prefixed
+    $prompts = $wpdb->get_results("SELECT * FROM {$table_prompts} ORDER BY display_order ASC, id ASC");
     
     ?>
     <table class="wp-list-table widefat fixed striped" style="margin-top: 20px;">
@@ -126,7 +157,8 @@ function ai_gemini_render_prompt_form($action, $prompt_id) {
     $prompt = null;
     if ($action === 'edit' && $prompt_id) {
         $table_prompts = $wpdb->prefix . 'ai_gemini_prompts';
-        $prompt = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_prompts WHERE id = %d", $prompt_id));
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is safely prefixed
+        $prompt = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table_prompts} WHERE id = %d", $prompt_id));
         
         if (!$prompt) {
             echo '<div class="notice notice-error"><p>' . esc_html__('Prompt not found.', 'ai-gemini-image') . '</p></div>';
@@ -234,6 +266,8 @@ function ai_gemini_render_prompt_form($action, $prompt_id) {
 
 /**
  * Handle prompt save
+ * 
+ * @return string|false Status string on success, false on failure
  */
 function ai_gemini_handle_prompt_save() {
     global $wpdb;
@@ -249,8 +283,7 @@ function ai_gemini_handle_prompt_save() {
     $is_active = isset($_POST['is_active']) ? 1 : 0;
     
     if (empty($prompt_key) || empty($prompt_name) || empty($prompt_text)) {
-        echo '<div class="notice notice-error"><p>' . esc_html__('Please fill in all required fields.', 'ai-gemini-image') . '</p></div>';
-        return;
+        return false;
     }
     
     if ($prompt_id) {
@@ -270,21 +303,17 @@ function ai_gemini_handle_prompt_save() {
             ['%d']
         );
         
-        if ($result !== false) {
-            echo '<div class="notice notice-success"><p>' . esc_html__('Prompt updated successfully!', 'ai-gemini-image') . '</p></div>';
-        } else {
-            echo '<div class="notice notice-error"><p>' . esc_html__('Failed to update prompt.', 'ai-gemini-image') . '</p></div>';
-        }
+        return ($result !== false) ? 'updated' : false;
     } else {
         // Check if key already exists
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is safely prefixed
         $exists = $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM $table_prompts WHERE prompt_key = %s",
+            "SELECT COUNT(*) FROM {$table_prompts} WHERE prompt_key = %s",
             $prompt_key
         ));
         
         if ($exists) {
-            echo '<div class="notice notice-error"><p>' . esc_html__('A prompt with this key already exists.', 'ai-gemini-image') . '</p></div>';
-            return;
+            return false;
         }
         
         // Insert new prompt
@@ -303,18 +332,14 @@ function ai_gemini_handle_prompt_save() {
             ['%s', '%s', '%s', '%s', '%d', '%d', '%s', '%s']
         );
         
-        if ($result) {
-            echo '<div class="notice notice-success"><p>' . esc_html__('Prompt added successfully!', 'ai-gemini-image') . '</p></div>';
-            // Redirect to list
-            echo '<script>window.location.href = "' . esc_url(admin_url('admin.php?page=ai-gemini-prompts')) . '";</script>';
-        } else {
-            echo '<div class="notice notice-error"><p>' . esc_html__('Failed to add prompt.', 'ai-gemini-image') . '</p></div>';
-        }
+        return $result ? 'added' : false;
     }
 }
 
 /**
  * Handle prompt delete
+ * 
+ * @return bool True on success, false on failure
  */
 function ai_gemini_handle_prompt_delete() {
     global $wpdb;
@@ -322,18 +347,13 @@ function ai_gemini_handle_prompt_delete() {
     $prompt_id = isset($_POST['prompt_id']) ? absint($_POST['prompt_id']) : 0;
     
     if (!$prompt_id) {
-        return;
+        return false;
     }
     
     $table_prompts = $wpdb->prefix . 'ai_gemini_prompts';
     $result = $wpdb->delete($table_prompts, ['id' => $prompt_id], ['%d']);
     
-    if ($result) {
-        echo '<div class="notice notice-success"><p>' . esc_html__('Prompt deleted successfully!', 'ai-gemini-image') . '</p></div>';
-        echo '<script>window.location.href = "' . esc_url(admin_url('admin.php?page=ai-gemini-prompts')) . '";</script>';
-    } else {
-        echo '<div class="notice notice-error"><p>' . esc_html__('Failed to delete prompt.', 'ai-gemini-image') . '</p></div>';
-    }
+    return (bool) $result;
 }
 
 /**
@@ -349,7 +369,8 @@ function ai_gemini_handle_prompt_toggle($prompt_id) {
     }
     
     $table_prompts = $wpdb->prefix . 'ai_gemini_prompts';
-    $prompt = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_prompts WHERE id = %d", $prompt_id));
+    // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is safely prefixed
+    $prompt = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table_prompts} WHERE id = %d", $prompt_id));
     
     if (!$prompt) {
         return;
@@ -364,7 +385,7 @@ function ai_gemini_handle_prompt_toggle($prompt_id) {
         ['%d']
     );
     
-    wp_safe_redirect(admin_url('admin.php?page=ai-gemini-prompts'));
+    wp_safe_redirect(admin_url('admin.php?page=ai-gemini-prompts&message=toggled'));
     exit;
 }
 
@@ -379,8 +400,18 @@ function ai_gemini_get_prompts($active_only = true) {
     
     $table_prompts = $wpdb->prefix . 'ai_gemini_prompts';
     
-    $where = $active_only ? 'WHERE is_active = 1' : '';
-    $prompts = $wpdb->get_results("SELECT * FROM $table_prompts $where ORDER BY display_order ASC, id ASC");
+    if ($active_only) {
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is safely prefixed
+        $prompts = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT * FROM {$table_prompts} WHERE is_active = %d ORDER BY display_order ASC, id ASC",
+                1
+            )
+        );
+    } else {
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is safely prefixed
+        $prompts = $wpdb->get_results("SELECT * FROM {$table_prompts} ORDER BY display_order ASC, id ASC");
+    }
     
     return $prompts ?: [];
 }
@@ -396,8 +427,9 @@ function ai_gemini_get_prompt_text($key) {
     
     $table_prompts = $wpdb->prefix . 'ai_gemini_prompts';
     
+    // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Table name is safely prefixed
     return $wpdb->get_var($wpdb->prepare(
-        "SELECT prompt_text FROM $table_prompts WHERE prompt_key = %s AND is_active = 1",
+        "SELECT prompt_text FROM {$table_prompts} WHERE prompt_key = %s AND is_active = 1",
         $key
     ));
 }
