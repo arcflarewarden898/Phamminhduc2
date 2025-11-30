@@ -139,6 +139,14 @@ function ai_gemini_dashboard_page() {
                         <td><code>[ai_gemini_buy_credit]</code></td>
                         <td><?php esc_html_e('Credit purchase page', 'ai-gemini-image'); ?></td>
                     </tr>
+                    <tr>
+                        <td><code>[ai_gemini_missions]</code></td>
+                        <td><?php esc_html_e('Missions page for earning free credits', 'ai-gemini-image'); ?></td>
+                    </tr>
+                    <tr>
+                        <td><code>[ai_gemini_mission_code mission_id="X"]</code></td>
+                        <td><?php esc_html_e('Display live TOTP code (embed on target website)', 'ai-gemini-image'); ?></td>
+                    </tr>
                 </tbody>
             </table>
         </div>
