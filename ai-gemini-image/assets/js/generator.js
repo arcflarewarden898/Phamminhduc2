@@ -11,6 +11,8 @@
         currentImageData: null,
         currentImageId: null,
         selectedStyle: 'anime',
+        maxRetries: 3,
+        retryDelay: 2000,
         
         init: function() {
             this.bindEvents();
@@ -125,13 +127,19 @@
                 return;
             }
             
-            // Read file
+            // Read file with error handling
             var reader = new FileReader();
+            
             reader.onload = function(e) {
                 self.currentImageData = e.target.result;
                 self.showPreview(e.target.result);
                 $('#btn-generate').prop('disabled', false);
             };
+            
+            reader.onerror = function() {
+                self.showError(self.config.strings.error_upload || 'Failed to read file');
+            };
+            
             reader.readAsDataURL(file);
         },
         
@@ -149,7 +157,39 @@
             $('#btn-generate').prop('disabled', true);
         },
         
+        /**
+         * Extract base64 data from data URI
+         * @param {string} dataUri The data URI to extract from
+         * @returns {string|null} The base64 data or null if invalid
+         */
+        extractBase64Data: function(dataUri) {
+            if (!dataUri || typeof dataUri !== 'string') {
+                return null;
+            }
+            
+            // Check if it's a data URI with a comma separator
+            var commaIndex = dataUri.indexOf(',');
+            if (commaIndex !== -1) {
+                return dataUri.substring(commaIndex + 1);
+            }
+            
+            // Check if it looks like raw base64 (no data URI prefix)
+            if (/^[A-Za-z0-9+\/=]+$/.test(dataUri.replace(/\s/g, ''))) {
+                return dataUri.replace(/\s/g, '');
+            }
+            
+            return null;
+        },
+        
         generatePreview: function() {
+            this.generatePreviewWithRetry(0);
+        },
+        
+        /**
+         * Generate preview with retry mechanism
+         * @param {number} retryCount Current retry attempt
+         */
+        generatePreviewWithRetry: function(retryCount) {
             var self = this;
             
             if (!this.currentImageData) {
@@ -163,13 +203,9 @@
             $('#btn-generate').prop('disabled', true);
             
             // Extract base64 data with validation
-            var imageData;
-            if (this.currentImageData && this.currentImageData.indexOf(',') !== -1) {
-                imageData = this.currentImageData.split(',')[1];
-            } else if (this.currentImageData) {
-                // Assume it's already base64 without data URI prefix
-                imageData = this.currentImageData;
-            } else {
+            var imageData = this.extractBase64Data(this.currentImageData);
+            
+            if (!imageData) {
                 this.showError(this.config.strings.error_upload || 'Invalid image data');
                 $('#btn-generate .btn-text').show();
                 $('#btn-generate .btn-loading').hide();
@@ -177,7 +213,7 @@
                 return;
             }
             
-            // Make API request
+            // Make API request with timeout
             $.ajax({
                 url: this.config.api_preview,
                 method: 'POST',
@@ -185,6 +221,7 @@
                     'X-WP-Nonce': this.config.nonce
                 },
                 contentType: 'application/json',
+                timeout: 120000, // 2 minute timeout for image generation
                 data: JSON.stringify({
                     image: imageData,
                     style: this.selectedStyle,
@@ -193,18 +230,60 @@
                 success: function(response) {
                     self.handlePreviewSuccess(response);
                 },
-                error: function(xhr) {
-                    self.handlePreviewError(xhr);
+                error: function(xhr, status, error) {
+                    // Check if we should retry
+                    if (retryCount < self.maxRetries && self.isRetryableError(xhr, status)) {
+                        // Show retry message
+                        console.log('Retrying preview generation, attempt ' + (retryCount + 2) + ' of ' + (self.maxRetries + 1));
+                        
+                        // Wait before retrying
+                        setTimeout(function() {
+                            self.generatePreviewWithRetry(retryCount + 1);
+                        }, self.retryDelay * (retryCount + 1)); // Exponential backoff
+                    } else {
+                        self.handlePreviewError(xhr);
+                        // Reset button state
+                        $('#btn-generate .btn-text').show();
+                        $('#btn-generate .btn-loading').hide();
+                        $('#btn-generate').prop('disabled', false);
+                    }
                 },
                 complete: function() {
-                    $('#btn-generate .btn-text').show();
-                    $('#btn-generate .btn-loading').hide();
-                    $('#btn-generate').prop('disabled', false);
+                    // Only reset state if not retrying
+                    if (retryCount >= self.maxRetries || !self.isRetrying) {
+                        // State is reset in error handler when not retrying
+                    }
                 }
             });
         },
         
+        /**
+         * Check if error is retryable
+         * @param {jqXHR} xhr The jQuery XHR object
+         * @param {string} status The error status
+         * @returns {boolean} True if error should be retried
+         */
+        isRetryableError: function(xhr, status) {
+            // Retry on network errors, timeouts, and 5xx server errors
+            if (status === 'timeout' || status === 'error' || status === 'abort') {
+                return true;
+            }
+            
+            // Retry on server errors (5xx)
+            if (xhr && xhr.status >= 500 && xhr.status < 600) {
+                return true;
+            }
+            
+            // Don't retry on client errors (4xx) as those indicate a problem with the request
+            return false;
+        },
+        
         handlePreviewSuccess: function(response) {
+            // Reset button state
+            $('#btn-generate .btn-text').show();
+            $('#btn-generate .btn-loading').hide();
+            $('#btn-generate').prop('disabled', false);
+            
             if (response.success && response.preview_url) {
                 this.currentImageId = response.image_id;
                 
@@ -234,6 +313,12 @@
             
             if (xhr.responseJSON && xhr.responseJSON.message) {
                 message = xhr.responseJSON.message;
+            } else if (xhr.status === 0) {
+                message = 'Connection failed. Please check your internet connection.';
+            } else if (xhr.status === 413) {
+                message = 'Image file is too large. Please use a smaller image.';
+            } else if (xhr.status === 503) {
+                message = 'Service temporarily unavailable. Please try again later.';
             }
             
             this.showError(message);
