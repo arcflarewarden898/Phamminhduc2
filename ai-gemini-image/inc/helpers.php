@@ -224,27 +224,60 @@ function ai_gemini_generate_filename($prefix = 'gemini', $extension = 'png') {
  * Sanitize and validate image data
  * 
  * @param string $image_data Base64 encoded image data
+ * @param array $result_info Optional reference to store additional info (mime_type, size)
  * @return string|false Cleaned image data or false if invalid
  */
-function ai_gemini_validate_image_data($image_data) {
-    // Remove data URI prefix if present
-    if (strpos($image_data, 'data:image/') === 0) {
-        $image_data = preg_replace('/^data:image\/\w+;base64,/', '', $image_data);
-    }
-    
-    // Validate base64
-    $decoded = base64_decode($image_data, true);
-    if ($decoded === false) {
+function ai_gemini_validate_image_data($image_data, &$result_info = null) {
+    if (empty($image_data) || !is_string($image_data)) {
+        ai_gemini_log('Invalid image data: empty or not a string', 'error');
         return false;
     }
     
-    // Check if it's a valid image
+    // Remove data URI prefix if present (handle all MIME type patterns including special chars like +)
+    if (strpos($image_data, 'data:image/') === 0) {
+        $image_data = preg_replace('/^data:image\/[a-zA-Z0-9+\.-]+;base64,/', '', $image_data);
+    }
+    
+    // Remove any whitespace or newlines that might have been introduced
+    $image_data = preg_replace('/\s+/', '', $image_data);
+    
+    // Validate base64 format - check for valid characters
+    if (!preg_match('/^[A-Za-z0-9+\/=]+$/', $image_data)) {
+        ai_gemini_log('Invalid image data: contains invalid base64 characters', 'error');
+        return false;
+    }
+    
+    // Validate base64 decoding
+    $decoded = base64_decode($image_data, true);
+    if ($decoded === false) {
+        ai_gemini_log('Invalid image data: base64 decode failed', 'error');
+        return false;
+    }
+    
+    // Check file size limit (10MB)
+    $max_size = 10 * 1024 * 1024; // 10MB
+    $data_size = strlen($decoded);
+    if ($data_size > $max_size) {
+        ai_gemini_log(sprintf('Invalid image data: size %d bytes exceeds limit of %d bytes', $data_size, $max_size), 'error');
+        return false;
+    }
+    
+    // Check if it's a valid image using finfo
     $finfo = new finfo(FILEINFO_MIME_TYPE);
     $mime = $finfo->buffer($decoded);
     
     $allowed_mimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    if (!in_array($mime, $allowed_mimes)) {
+    if (!in_array($mime, $allowed_mimes, true)) {
+        ai_gemini_log(sprintf('Invalid image data: MIME type %s not allowed', $mime), 'error');
         return false;
+    }
+    
+    // Store additional info if reference provided
+    if ($result_info !== null) {
+        $result_info = [
+            'mime_type' => $mime,
+            'size' => $data_size,
+        ];
     }
     
     return $image_data;

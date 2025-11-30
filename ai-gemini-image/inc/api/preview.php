@@ -73,6 +73,17 @@ function ai_gemini_handle_preview_request($request) {
         );
     }
     
+    // Validate image data early to provide better error feedback
+    $image_info = null;
+    $validated_image = ai_gemini_validate_image_data($image_data, $image_info);
+    if (!$validated_image) {
+        return new WP_Error(
+            'invalid_image',
+            __('Invalid image data. Please upload a valid JPG, PNG, or WebP image (max 10MB).', 'ai-gemini-image'),
+            ['status' => 400]
+        );
+    }
+    
     // Initialize Gemini API
     $api = new AI_GEMINI_API();
     
