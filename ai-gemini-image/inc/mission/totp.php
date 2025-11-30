@@ -11,7 +11,9 @@ if (!defined('ABSPATH')) exit;
 /**
  * Generate a random TOTP secret key
  * 
- * @param int $length Length of the secret (default 16 bytes)
+ * Uses cryptographically secure random generation.
+ * 
+ * @param int $length Length of the secret (default 16 characters)
  * @return string Base32 encoded secret
  */
 function ai_gemini_generate_totp_secret($length = 16) {
@@ -19,7 +21,7 @@ function ai_gemini_generate_totp_secret($length = 16) {
     $secret = '';
     
     for ($i = 0; $i < $length; $i++) {
-        $secret .= $chars[wp_rand(0, 31)];
+        $secret .= $chars[random_int(0, 31)];
     }
     
     return $secret;

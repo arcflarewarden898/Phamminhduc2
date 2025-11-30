@@ -558,10 +558,32 @@ function ai_gemini_mission_codes_page($mission_id) {
             });
         });
         
-        // Auto-refresh TOTP codes every 30 seconds
-        setInterval(function() {
-            location.reload();
-        }, 30000);
+        // Auto-refresh TOTP codes every 30 seconds using AJAX
+        function refreshTOTPCodes() {
+            var rows = document.querySelectorAll('.totp-code');
+            rows.forEach(function(el) {
+                var codeId = el.getAttribute('data-code-id');
+                if (codeId) {
+                    fetch('<?php echo esc_url(admin_url('admin-ajax.php')); ?>?action=ai_gemini_get_totp_code&code_id=' + codeId)
+                        .then(function(response) { return response.json(); })
+                        .then(function(data) {
+                            if (data.success) {
+                                el.textContent = data.data.totp;
+                                // Update full code display and copy button
+                                var row = el.closest('tr');
+                                if (row) {
+                                    var fullCodeEl = row.querySelector('.full-code');
+                                    var copyBtn = row.querySelector('.copy-code');
+                                    if (fullCodeEl) fullCodeEl.textContent = data.data.full_code;
+                                    if (copyBtn) copyBtn.setAttribute('data-code', data.data.full_code);
+                                }
+                            }
+                        });
+                }
+            });
+        }
+        
+        setInterval(refreshTOTPCodes, 30000);
     });
     </script>
     <?php

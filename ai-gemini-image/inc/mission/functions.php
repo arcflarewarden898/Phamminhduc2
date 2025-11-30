@@ -107,17 +107,20 @@ function ai_gemini_check_mission_eligible($mission_id, $user_id = null) {
     
     // Check cooldown
     if ($mission->cooldown_hours > 0) {
-        // Build condition for user or guest
+        // Build query based on user or guest
         if ($user_id) {
-            $where = $wpdb->prepare("user_id = %d", $user_id);
+            $last_completion = $wpdb->get_var($wpdb->prepare(
+                "SELECT MAX(completed_at) FROM $table_completions WHERE mission_id = %d AND user_id = %d",
+                $mission_id,
+                $user_id
+            ));
         } else {
-            $where = $wpdb->prepare("guest_ip = %s", $ip);
+            $last_completion = $wpdb->get_var($wpdb->prepare(
+                "SELECT MAX(completed_at) FROM $table_completions WHERE mission_id = %d AND guest_ip = %s",
+                $mission_id,
+                $ip
+            ));
         }
-        
-        $last_completion = $wpdb->get_var($wpdb->prepare(
-            "SELECT MAX(completed_at) FROM $table_completions WHERE mission_id = %d AND ($where)",
-            $mission_id
-        ));
         
         if ($last_completion) {
             $last_time = strtotime($last_completion);
@@ -138,15 +141,18 @@ function ai_gemini_check_mission_eligible($mission_id, $user_id = null) {
     } else {
         // If cooldown is 0, mission can only be done once
         if ($user_id) {
-            $where = $wpdb->prepare("user_id = %d", $user_id);
+            $has_completed = $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM $table_completions WHERE mission_id = %d AND user_id = %d",
+                $mission_id,
+                $user_id
+            ));
         } else {
-            $where = $wpdb->prepare("guest_ip = %s", $ip);
+            $has_completed = $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM $table_completions WHERE mission_id = %d AND guest_ip = %s",
+                $mission_id,
+                $ip
+            ));
         }
-        
-        $has_completed = $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM $table_completions WHERE mission_id = %d AND ($where)",
-            $mission_id
-        ));
         
         if ($has_completed > 0) {
             return [

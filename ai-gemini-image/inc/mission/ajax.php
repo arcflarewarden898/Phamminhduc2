@@ -155,9 +155,12 @@ function ai_gemini_ajax_get_mission_history() {
 
 /**
  * AJAX handler: Get current TOTP code (for website display)
+ * 
+ * Note: This endpoint is designed to be accessible from external websites
+ * where the mission code shortcode is embedded. It only returns the
+ * time-based code which changes every 15 minutes.
  */
 function ai_gemini_ajax_get_totp_code() {
-    // This endpoint is used on the destination website to display current TOTP
     $mission_id = isset($_GET['mission_id']) ? absint($_GET['mission_id']) : 0;
     $code_id = isset($_GET['code_id']) ? absint($_GET['code_id']) : 0;
     
@@ -166,6 +169,19 @@ function ai_gemini_ajax_get_totp_code() {
             'message' => __('Invalid request.', 'ai-gemini-image'),
         ]);
     }
+    
+    // Basic rate limiting using transient
+    $ip = ai_gemini_get_client_ip();
+    $rate_key = 'totp_rate_' . md5($ip);
+    $rate_count = (int) get_transient($rate_key);
+    
+    if ($rate_count > 60) { // Max 60 requests per minute
+        wp_send_json_error([
+            'message' => __('Too many requests. Please wait.', 'ai-gemini-image'),
+        ]);
+    }
+    
+    set_transient($rate_key, $rate_count + 1, 60);
     
     global $wpdb;
     $table_codes = $wpdb->prefix . 'ai_gemini_mission_codes';
