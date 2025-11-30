@@ -235,7 +235,7 @@ function ai_gemini_validate_image_data($image_data, &$result_info = null) {
     
     // Remove data URI prefix if present (handle all MIME type patterns including special chars like +)
     if (strpos($image_data, 'data:image/') === 0) {
-        $image_data = preg_replace('/^data:image\/[a-zA-Z0-9+.-]+;base64,/', '', $image_data);
+        $image_data = preg_replace('/^data:image\/[a-zA-Z0-9+\.-]+;base64,/', '', $image_data);
     }
     
     // Remove any whitespace or newlines that might have been introduced

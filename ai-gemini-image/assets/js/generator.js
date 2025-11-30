@@ -249,10 +249,8 @@
                     }
                 },
                 complete: function() {
-                    // Only reset state if not retrying
-                    if (retryCount >= self.maxRetries || !self.isRetrying) {
-                        // State is reset in error handler when not retrying
-                    }
+                    // Complete handler is called after success/error
+                    // State is managed in success and error handlers
                 }
             });
         },
