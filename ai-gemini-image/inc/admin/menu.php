@@ -52,6 +52,16 @@ function ai_gemini_admin_menu() {
         'ai_gemini_credit_manager_page'
     );
     
+    // Prompts submenu
+    add_submenu_page(
+        'ai-gemini-dashboard',
+        __('Prompts', 'ai-gemini-image'),
+        __('Prompts', 'ai-gemini-image'),
+        'manage_options',
+        'ai-gemini-prompts',
+        'ai_gemini_prompt_manager_page'
+    );
+    
     // Orders submenu
     add_submenu_page(
         'ai-gemini-dashboard',

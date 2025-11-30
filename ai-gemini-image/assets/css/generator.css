@@ -189,8 +189,14 @@
 .prompt-section label {
     display: block;
     font-weight: 600;
-    margin-bottom: 8px;
+    margin-bottom: 4px;
     color: var(--ai-text);
+}
+
+.prompt-section .prompt-description {
+    font-size: 14px;
+    color: var(--ai-text-muted);
+    margin: 0 0 12px 0;
 }
 
 .prompt-section textarea {
