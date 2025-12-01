@@ -79,12 +79,16 @@ class AI_GEMINI_API {
             return false;
         }
         
-        // Validate image data
-        $source_image = ai_gemini_validate_image_data($source_image);
+        // Validate image data and get MIME type info
+        $image_info = null;
+        $source_image = ai_gemini_validate_image_data($source_image, $image_info);
         if (!$source_image) {
             $this->last_error = __('Invalid image data', 'ai-gemini-image');
             return false;
         }
+        
+        // Use detected MIME type or fallback to jpeg
+        $mime_type = isset($image_info['mime_type']) ? $image_info['mime_type'] : 'image/jpeg';
         
         // Build the full prompt with style
         $full_prompt = $this->build_prompt($prompt, $style);
@@ -96,7 +100,7 @@ class AI_GEMINI_API {
                     'parts' => [
                         [
                             'inlineData' => [
-                                'mimeType' => 'image/jpeg',
+                                'mimeType' => $mime_type,
                                 'data' => $source_image
                             ]
                         ],

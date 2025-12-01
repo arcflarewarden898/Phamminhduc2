@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Gemini Image Generator
  * Description: Plugin tạo hình ảnh bằng Google Gemini 2.5 Flash Image với hệ thống credit và nhiệm vụ
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: Your Name
  * Text Domain: ai-gemini-image
  * Domain Path: /languages
@@ -11,7 +11,7 @@
 if (!defined('ABSPATH')) exit;
 
 // Define plugin constants
-define('AI_GEMINI_VERSION', '1.0.0');
+define('AI_GEMINI_VERSION', '1.0.1');
 define('AI_GEMINI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('AI_GEMINI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -24,12 +24,15 @@ $ai_gemini_includes = [
     // Admin
     'inc/admin/menu.php',
     'inc/admin/credit-manager.php',
+    'inc/admin/prompt-manager.php',
+    'inc/admin/mission-manager.php', // <--- FILE MỚI: Quản lý nhiệm vụ
     
     // API
     'inc/api/class-gemini-api.php',
     'inc/api/preview.php',
     'inc/api/unlock.php',
     'inc/api/credit.php',
+    'inc/api/mission.php', // <--- FILE MỚI: API nhiệm vụ
     
     // Credit System
     'inc/credit/functions.php',

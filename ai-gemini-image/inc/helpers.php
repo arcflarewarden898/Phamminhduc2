@@ -249,3 +249,34 @@ function ai_gemini_validate_image_data($image_data) {
     
     return $image_data;
 }
+
+/**
+ * --- NEW FUNCTIONS FOR PROMPTS ---
+ */
+
+/**
+ * Lấy danh sách tất cả prompts đang active
+ */
+function ai_gemini_get_active_prompts() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'ai_gemini_prompts';
+    // Check if table exists before query to avoid errors on fresh install before dbDelta runs
+    if($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
+        return [];
+    }
+    return $wpdb->get_results("SELECT * FROM $table_name WHERE is_active = 1 ORDER BY title ASC");
+}
+
+/**
+ * Lấy prompt cụ thể theo slug hoặc ID
+ */
+function ai_gemini_get_prompt_by_key($key) {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'ai_gemini_prompts';
+    
+    if (is_numeric($key)) {
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $key));
+    } else {
+        return $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE slug = %s", $key));
+    }
+}
