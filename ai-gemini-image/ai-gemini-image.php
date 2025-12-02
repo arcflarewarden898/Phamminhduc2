@@ -15,6 +15,16 @@ define('AI_GEMINI_VERSION', '1.0.1');
 define('AI_GEMINI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('AI_GEMINI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
+/**
+ * URL time server chuẩn dùng cho TOTP
+ * Bạn đã triển khai endpoint này trên VPS:
+ *   https://khungtranhtreotuong.com/api-time.php
+ * Trả về JSON: {"timestamp":1764645274,"datetime":"2025-12-02T03:14:34+00:00"}
+ */
+if (!defined('AI_GEMINI_TIME_SERVER_URL')) {
+    define('AI_GEMINI_TIME_SERVER_URL', 'https://khungtranhtreotuong.com/api-time.php');
+}
+
 // Autoload files in organized order
 $ai_gemini_includes = [
     // Database

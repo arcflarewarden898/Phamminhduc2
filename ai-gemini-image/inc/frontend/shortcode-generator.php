@@ -12,22 +12,22 @@ add_action('init', 'ai_gemini_register_generator_shortcode');
 
 function ai_gemini_generator_shortcode($atts) {
     $atts = shortcode_atts([
-        'show_credits' => 'true',
-        'show_styles' => 'true',
-        'style' => '', 
-        'default_style' => '',
+        'show_credits'   => 'true',
+        'show_styles'    => 'true',
+        'style'          => '',
+        'default_style'  => '',
     ], $atts, 'ai_gemini_generator');
     
     ai_gemini_enqueue_generator_assets();
     
-    $user_id = get_current_user_id();
-    $credits = ai_gemini_get_credit($user_id ?: null);
-    $has_trial = !ai_gemini_has_used_trial($user_id ?: null);
-    $preview_cost = (int) get_option('ai_gemini_preview_credit', 0);
-    $unlock_cost = (int) get_option('ai_gemini_unlock_credit', 1);
-    $styles = ai_gemini_get_active_prompts();
+    $user_id       = get_current_user_id();
+    $credits       = ai_gemini_get_credit($user_id ?: null);
+    $has_trial     = !ai_gemini_has_used_trial($user_id ?: null);
+    $preview_cost  = (int) get_option('ai_gemini_preview_credit', 0);
+    $unlock_cost   = (int) get_option('ai_gemini_unlock_credit', 1);
+    $styles        = ai_gemini_get_active_prompts();
     $selected_style_slug = $atts['style'] ?: ($atts['default_style'] ?: ($styles ? $styles[0]->slug : ''));
-    $forced_style = !empty($atts['style']);
+    $forced_style  = !empty($atts['style']);
 
     ob_start();
     ?>
@@ -100,7 +100,7 @@ function ai_gemini_generator_shortcode($atts) {
             </div>
         </div>
         
-        <!-- Result Sections (Giữ nguyên) -->
+        <!-- Result Sections -->
         <div class="gemini-result" id="gemini-result" style="display:none;">
             <div class="result-header"><h3>Kết Quả</h3></div>
             <div class="result-image"><img src="" id="result-image"><div class="watermark-notice">Ảnh xem trước (Low Res)</div></div>
@@ -143,18 +143,18 @@ function ai_gemini_enqueue_generator_assets() {
     wp_enqueue_script('ai-gemini-generator', AI_GEMINI_PLUGIN_URL . 'assets/js/generator.js', ['jquery'], AI_GEMINI_VERSION, true);
     wp_localize_script('ai-gemini-generator', 'AIGeminiConfig', [
         'api_preview' => rest_url('ai/v1/preview'),
-        'api_unlock' => rest_url('ai/v1/unlock'),
-        'api_credit' => rest_url('ai/v1/credit'),
-        'nonce' => wp_create_nonce('wp_rest'),
+        'api_unlock'  => rest_url('ai/v1/unlock'),
+        'api_credit'  => rest_url('ai/v1/credit'),
+        'nonce'       => wp_create_nonce('wp_rest'),
         'max_file_size' => 10 * 1024 * 1024,
         'strings' => [
             'error_file_size' => 'File quá lớn (Max 10MB).',
             'error_file_type' => 'Chỉ hỗ trợ JPG, PNG, WebP.',
-            'error_upload' => 'Lỗi tải ảnh.',
-            'error_generate' => 'Lỗi tạo ảnh.',
-            'error_unlock' => 'Lỗi mở khóa.',
-            'generating' => 'Đang xử lý...',
-            'unlocking' => 'Đang mở khóa...',
+            'error_upload'    => 'Lỗi tải ảnh.',
+            'error_generate'  => 'Lỗi tạo ảnh.',
+            'error_unlock'    => 'Lỗi mở khóa.',
+            'generating'      => 'Đang xử lý...',
+            'unlocking'       => 'Đang mở khóa...',
         ]
     ]);
 }

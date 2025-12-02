@@ -8,6 +8,100 @@
 if (!defined('ABSPATH')) exit;
 
 /**
+ * ============================================================================
+ *  ĐỒNG BỘ THỜI GIAN VỚI TIME SERVER T (CHO TOTP)
+ * ============================================================================
+ */
+
+/**
+ * Cập nhật offset thời gian giữa server A (chạy plugin) và time server T.
+ *
+ * offset = timestamp_T - time()
+ * Lưu vào option 'ai_gemini_time_offset' (int, giây).
+ *
+ * Endpoint time server trả JSON dạng:
+ *  {
+ *      "timestamp": 1764645274,
+ *      "datetime": "2025-12-02T03:14:34+00:00"
+ *  }
+ */
+function ai_gemini_update_time_offset() {
+    if (!defined('AI_GEMINI_TIME_SERVER_URL') || empty(AI_GEMINI_TIME_SERVER_URL)) {
+        return;
+    }
+
+    $response = wp_remote_get(AI_GEMINI_TIME_SERVER_URL, [
+        'timeout' => 5,
+    ]);
+
+    if (is_wp_error($response)) {
+        // Nếu muốn debug, mở comment dòng dưới:
+        // ai_gemini_log('Time server request failed: ' . $response->get_error_message(), 'error');
+        return;
+    }
+
+    $code = wp_remote_retrieve_response_code($response);
+    if ($code !== 200) {
+        // ai_gemini_log('Time server HTTP code: ' . $code, 'error');
+        return;
+    }
+
+    $body = wp_remote_retrieve_body($response);
+    $data = json_decode($body, true);
+
+    if (!is_array($data) || !isset($data['timestamp'])) {
+        // ai_gemini_log('Invalid time server response: ' . $body, 'error');
+        return;
+    }
+
+    $timestamp_T = (int) $data['timestamp'];
+    $time_A      = time();
+
+    $offset = $timestamp_T - $time_A;
+
+    update_option('ai_gemini_time_offset', $offset, false);
+}
+
+/**
+ * Lấy thời gian chuẩn (UNIX timestamp, giây) đã hiệu chỉnh theo time server.
+ *
+ * Nếu chưa từng sync hoặc option chưa được set, hàm sẽ trả về time() bình thường.
+ *
+ * @return int
+ */
+function ai_gemini_get_central_time() {
+    $offset = (int) get_option('ai_gemini_time_offset', 0);
+    return time() + $offset;
+}
+
+/**
+ * Mỗi khi có request vào site, nếu lần sync trước đã quá 12h thì sync lại.
+ *
+ * Không cần tạo cron riêng, chỉ cần site có traffic.
+ */
+function ai_gemini_maybe_sync_time_offset() {
+    $last_sync = (int) get_option('ai_gemini_time_last_sync', 0);
+    $now       = time();
+
+    // 12 giờ
+    $interval = 12 * HOUR_IN_SECONDS;
+
+    if (($now - $last_sync) < $interval) {
+        return;
+    }
+
+    ai_gemini_update_time_offset();
+    update_option('ai_gemini_time_last_sync', $now, false);
+}
+add_action('init', 'ai_gemini_maybe_sync_time_offset');
+
+/**
+ * ============================================================================
+ *  CÁC HÀM HELPERS GỐC
+ * ============================================================================
+ */
+
+/**
  * Get user or guest credit balance
  * 
  * @param int|null $user_id User ID or null for guest

@@ -10,8 +10,8 @@ if (!defined('ABSPATH')) exit;
  */
 function ai_gemini_register_preview_api() {
     register_rest_route('ai/v1', '/preview', [
-        'methods' => 'POST',
-        'callback' => 'ai_gemini_handle_preview_request',
+        'methods'             => 'POST',
+        'callback'            => 'ai_gemini_handle_preview_request',
         'permission_callback' => 'ai_gemini_preview_permission_check',
     ]);
 }
@@ -21,8 +21,8 @@ add_action('rest_api_init', 'ai_gemini_register_preview_api');
  * Permission check
  */
 function ai_gemini_preview_permission_check($request) {
-    $user_id = get_current_user_id();
-    $credits = ai_gemini_get_credit($user_id ?: null);
+    $user_id      = get_current_user_id();
+    $credits      = ai_gemini_get_credit($user_id ?: null);
     $preview_cost = (int) get_option('ai_gemini_preview_credit', 0);
     
     if ($preview_cost > 0 && $credits < $preview_cost) {
@@ -44,29 +44,25 @@ function ai_gemini_handle_preview_request($request) {
     global $wpdb;
     
     $user_id = get_current_user_id();
-    $ip = ai_gemini_get_client_ip();
+    $ip      = ai_gemini_get_client_ip();
     
-    $image_data = $request->get_param('image');
-    $style_slug = sanitize_text_field($request->get_param('style') ?: '');
-    $user_prompt = sanitize_textarea_field($request->get_param('prompt') ?: '');
-    
-    if (empty($image_data)) {
-        return new WP_Error(
-            'missing_image',
-            'Vui lòng tải lên một bức ảnh.',
-            ['status' => 400]
-        );
-    }
+    // Hỗ trợ 2 mode:
+    // - image: base64 ảnh mới upload
+    // - image_session_id: id ảnh đã tạo trước đó (dùng lại)
+    $image_data        = $request->get_param('image'); // base64 (không còn prefix data:image/...)
+    $image_session_id  = (int) $request->get_param('image_session_id');
+    $style_slug        = sanitize_text_field($request->get_param('style') ?: '');
+    $user_prompt       = sanitize_textarea_field($request->get_param('prompt') ?: '');
     
     // LOGIC TRA CỨU PROMPT
     $final_prompt_text = '';
-    $style_title = 'Custom';
+    $style_title       = 'Custom';
     
     if (!empty($style_slug)) {
         $prompt_obj = ai_gemini_get_prompt_by_key($style_slug);
         if ($prompt_obj) {
             $final_prompt_text = $prompt_obj->prompt_text;
-            $style_title = $prompt_obj->title;
+            $style_title       = $prompt_obj->title;
         } else {
              return new WP_Error(
                 'invalid_style',
@@ -91,8 +87,8 @@ function ai_gemini_handle_preview_request($request) {
     }
     
     // Trừ credit
-    $preview_cost = (int) get_option('ai_gemini_preview_credit', 0);
-    $credits_used = 0;
+    $preview_cost  = (int) get_option('ai_gemini_preview_credit', 0);
+    $credits_used  = 0;
     
     if ($preview_cost > 0) {
         $credits = ai_gemini_get_credit($user_id ?: null);
@@ -111,8 +107,60 @@ function ai_gemini_handle_preview_request($request) {
             }
         }
     }
-    
-    $result = $api->generate_image($image_data, $final_prompt_text, $style_title);
+
+    // ========= LẤY ẢNH ĐẦU VÀO THEO 2 MODE =========
+
+    $input_image_base64 = null;
+    $original_image_url = null;
+
+    $table_images = $wpdb->prefix . 'ai_gemini_images';
+
+    if ($image_session_id > 0) {
+        // Mode dùng lại ảnh cũ: tìm record ảnh theo ID
+        $parent = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table_images WHERE id = %d",
+            $image_session_id
+        ));
+
+        if (!$parent) {
+            // Nếu không tìm thấy session → fallback yêu cầu ảnh mới
+            if (empty($image_data)) {
+                return new WP_Error(
+                    'missing_image',
+                    'Phiên ảnh đã hết hạn hoặc không tồn tại. Vui lòng tải ảnh mới.',
+                    ['status' => 400]
+                );
+            }
+        } else {
+            $original_image_url = $parent->original_image_url;
+
+            if (!empty($original_image_url)) {
+                // Đọc lại file từ server
+                $file_path = ai_gemini_url_to_path($original_image_url);
+                if ($file_path && file_exists($file_path)) {
+                    $binary = file_get_contents($file_path);
+                    if ($binary !== false) {
+                        $input_image_base64 = base64_encode($binary);
+                    }
+                }
+            }
+        }
+    }
+
+    // Nếu vẫn chưa có ảnh (lần đầu hoặc session lỗi) → dùng ảnh base64 từ request
+    if (!$input_image_base64) {
+        if (empty($image_data)) {
+            return new WP_Error(
+                'missing_image',
+                'Vui lòng tải lên một bức ảnh.',
+                ['status' => 400]
+            );
+        }
+        $input_image_base64 = $image_data;
+    }
+
+    // ========= GỌI GEMINI TẠO ẢNH =========
+    $result = $api->generate_image($input_image_base64, $final_prompt_text, $style_title);
     
     if (!$result) {
         if ($credits_used > 0) {
@@ -124,12 +172,18 @@ function ai_gemini_handle_preview_request($request) {
             ['status' => 500]
         );
     }
+
+    // ========= LƯU ẢNH VÀO SERVER =========
+
+    $filename      = ai_gemini_generate_filename('preview');
+    $image_binary  = base64_decode($result['image_data']);
+    $stored        = ai_gemini_store_image_versions($image_binary, $filename);
     
-    $filename = ai_gemini_generate_filename('preview');
-    $image_binary = base64_decode($result['image_data']);
-    $stored = ai_gemini_store_image_versions($image_binary, $filename);
-    
-    if (!$stored || !file_exists($stored['preview_path'])) {
+    if (
+        !$stored ||
+        !isset($stored['preview_path'], $stored['preview_url']) ||
+        !file_exists($stored['preview_path'])
+    ) {
         return new WP_Error(
             'save_failed',
             'Lỗi khi lưu ảnh xuống server.',
@@ -138,49 +192,71 @@ function ai_gemini_handle_preview_request($request) {
     }
     
     $preview_url = $stored['preview_url'];
-    
-    $table_images = $wpdb->prefix . 'ai_gemini_images';
+
+    // Nếu chưa có original_image_url (lần đầu) thì tạm dùng chính preview_url
+    // (Bạn có thể thay bằng full_url nếu hàm store trả về, nhưng để an toàn ta fallback như này)
+    if (empty($original_image_url)) {
+        $original_image_url = $preview_url;
+    }
+
+    // Lưu record
     $wpdb->insert(
         $table_images,
         [
-            'user_id' => $user_id ?: null,
-            'guest_ip' => $user_id ? null : $ip,
-            'original_image_url' => null,
+            'user_id'           => $user_id ?: null,
+            'guest_ip'          => $user_id ? null : $ip,
+            'original_image_url'=> $original_image_url,
             'preview_image_url' => $preview_url,
-            'full_image_url' => null,
-            'prompt' => $final_prompt_text,
-            'style' => $style_slug,
-            'is_unlocked' => 0,
-            'credits_used' => $credits_used,
-            'created_at' => current_time('mysql'),
-            'expires_at' => date('Y-m-d H:i:s', strtotime('+24 hours')),
+            'full_image_url'    => null,
+            'prompt'            => $final_prompt_text,
+            'style'             => $style_slug,
+            'is_unlocked'       => 0,
+            'credits_used'      => $credits_used,
+            'created_at'        => current_time('mysql'),
+            'expires_at'        => date('Y-m-d H:i:s', strtotime('+24 hours')),
         ],
-        ['%d', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%s']
+        ['%d', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%s']
     );
     
     $image_id = $wpdb->insert_id;
+
+    // Nếu đây là lần đầu (chưa có session id), coi image_id vừa tạo là session
+    $image_session_id_to_return = $image_session_id > 0 ? $image_session_id : $image_id;
     
     if ($credits_used > 0) {
         ai_gemini_log_transaction([
-            'user_id' => $user_id ?: null,
-            'guest_ip' => $user_id ? null : $ip,
-            'type' => 'preview_generation',
-            'amount' => -$credits_used,
-            'description' => 'Tạo ảnh xem trước',
+            'user_id'      => $user_id ?: null,
+            'guest_ip'     => $user_id ? null : $ip,
+            'type'         => 'preview_generation',
+            'amount'       => -$credits_used,
+            'description'  => 'Tạo ảnh xem trước',
             'reference_id' => $image_id,
         ]);
     }
     
     $remaining_credits = ai_gemini_get_credit($user_id ?: null);
-    $unlock_cost = (int) get_option('ai_gemini_unlock_credit', 1);
+    $unlock_cost       = (int) get_option('ai_gemini_unlock_credit', 1);
     
     return rest_ensure_response([
-        'success' => true,
-        'image_id' => $image_id,
-        'preview_url' => $preview_url,
-        'credits_remaining' => $remaining_credits,
-        'unlock_cost' => $unlock_cost,
-        'can_unlock' => $remaining_credits >= $unlock_cost,
-        'message' => 'Đã tạo ảnh thành công!',
+        'success'          => true,
+        'image_id'         => $image_id,
+        'image_session_id' => $image_session_id_to_return,
+        'preview_url'      => $preview_url,
+        'credits_remaining'=> $remaining_credits,
+        'unlock_cost'      => $unlock_cost,
+        'can_unlock'       => $remaining_credits >= $unlock_cost,
+        'message'          => 'Đã tạo ảnh thành công!',
     ]);
+}
+
+/**
+ * Helper: convert URL trong uploads → đường dẫn file trên server
+ */
+function ai_gemini_url_to_path($url) {
+    $upload_dir = wp_upload_dir();
+    if (strpos($url, $upload_dir['baseurl']) === 0) {
+        $relative = substr($url, strlen($upload_dir['baseurl']));
+        return $upload_dir['basedir'] . $relative;
+    }
+    return false;
 }
