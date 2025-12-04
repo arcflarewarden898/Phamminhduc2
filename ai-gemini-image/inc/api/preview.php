@@ -46,15 +46,12 @@ function ai_gemini_handle_preview_request($request) {
     $user_id = get_current_user_id();
     $ip      = ai_gemini_get_client_ip();
     
-    // Hỗ trợ 2 mode:
-    // - image: base64 ảnh mới upload
-    // - image_session_id: id ảnh đã tạo trước đó (dùng lại)
-    $image_data        = $request->get_param('image'); // base64 (không còn prefix data:image/...)
+    $image_data        = $request->get_param('image'); // base64
     $image_session_id  = (int) $request->get_param('image_session_id');
     $style_slug        = sanitize_text_field($request->get_param('style') ?: '');
     $user_prompt       = sanitize_textarea_field($request->get_param('prompt') ?: '');
     
-    // LOGIC TRA CỨU PROMPT
+    // ====== PROMPT ======
     $final_prompt_text = '';
     $style_title       = 'Custom';
     
@@ -75,6 +72,8 @@ function ai_gemini_handle_preview_request($request) {
     if (!empty($user_prompt)) {
         $final_prompt_text .= "\nAdditional User Instruction: " . $user_prompt;
     }
+
+    $final_prompt_text .= "\nTechnical Instruction: Render at native 1K resolution with crisp edges, clear micro-details, and high local contrast. Avoid blur, ringing, or oversharpening artifacts. Do not change the subject, composition, or content of the image.";
     
     $api = new AI_GEMINI_API();
     
@@ -86,7 +85,7 @@ function ai_gemini_handle_preview_request($request) {
         );
     }
     
-    // Trừ credit
+    // ====== CREDIT PREVIEW ======
     $preview_cost  = (int) get_option('ai_gemini_preview_credit', 0);
     $credits_used  = 0;
     
@@ -110,7 +109,7 @@ function ai_gemini_handle_preview_request($request) {
 
     $table_images = $wpdb->prefix . 'ai_gemini_images';
 
-    // ========= LẤY ẢNH ĐẦU VÀO & FILE URI =========
+    // ========= INPUT IMAGE & FILE URI =========
 
     $input_image_base64 = null;
     $original_image_url = null;
@@ -118,21 +117,12 @@ function ai_gemini_handle_preview_request($request) {
     $gemini_mime_type   = null;
 
     if ($image_session_id > 0) {
-        // Mode dùng lại ảnh cũ: tìm record ảnh theo ID
         $parent = $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM $table_images WHERE id = %d",
             $image_session_id
         ));
 
-        if (!$parent) {
-            if (empty($image_data)) {
-                return new WP_Error(
-                    'missing_image',
-                    'Phiên ảnh đã hết hạn hoặc không tồn tại. Vui lòng tải ảnh mới.',
-                    ['status' => 400]
-                );
-            }
-        } else {
+        if ($parent) {
             $original_image_url = $parent->original_image_url;
             $gemini_file_uri    = $parent->gemini_file_uri;
             $gemini_mime_type   = $parent->gemini_mime_type;
@@ -144,30 +134,30 @@ function ai_gemini_handle_preview_request($request) {
                 'info'
             );
 
-            // Nếu có file_uri mà mime_type rỗng/0 -> mặc định JPEG
             if (!empty($gemini_file_uri) && (empty($gemini_mime_type) || $gemini_mime_type === '0' || $gemini_mime_type === 0)) {
                 $gemini_mime_type = 'image/jpeg';
             }
 
-            // Nếu đã có file_uri trong DB -> dùng Files API, không cần đọc file local
-            if (!empty($gemini_file_uri)) {
-                // nothing
-            } else {
-                // Backward compatibility: đọc lại file local => inlineData (fallback)
-                if (!empty($original_image_url)) {
-                    $file_path = ai_gemini_url_to_path($original_image_url);
-                    if ($file_path && file_exists($file_path)) {
-                        $binary = file_get_contents($file_path);
-                        if ($binary !== false) {
-                            $input_image_base64 = base64_encode($binary);
-                        }
+            if (empty($gemini_file_uri) && !empty($original_image_url)) {
+                $file_path = ai_gemini_url_to_path($original_image_url);
+                if ($file_path && file_exists($file_path)) {
+                    $binary = file_get_contents($file_path);
+                    if ($binary !== false) {
+                        $input_image_base64 = base64_encode($binary);
                     }
                 }
+            }
+        } else {
+            if (empty($image_data)) {
+                return new WP_Error(
+                    'missing_image',
+                    'Phiên ảnh đã hết hạn hoặc không tồn tại. Vui lòng tải ảnh mới.',
+                    ['status' => 400]
+                );
             }
         }
     }
 
-    // Nếu vẫn chưa có ảnh từ session (lần đầu hoặc session lỗi) -> dùng ảnh base64 từ request
     if (!$input_image_base64 && empty($gemini_file_uri)) {
         if (empty($image_data)) {
             return new WP_Error(
@@ -179,10 +169,9 @@ function ai_gemini_handle_preview_request($request) {
         $input_image_base64 = $image_data;
     }
 
-    // ========= UPLOAD LẦN ĐẦU LÊN FILES API (NẾU CẦN) =========
+    // ========= UPLOAD TO FILES API (NẾU CẦN) =========
 
     if (empty($gemini_file_uri)) {
-        // Decode base64 để tối ưu + upload
         $validated = ai_gemini_validate_image_data($input_image_base64);
         if ($validated === false) {
             if ($credits_used > 0) {
@@ -207,7 +196,6 @@ function ai_gemini_handle_preview_request($request) {
             );
         }
 
-        // Optimize trước khi upload để giảm chi phí/tokens
         $optimized = $api->upload_image_to_files_api(
             $binary,
             'image/jpeg',
@@ -215,7 +203,6 @@ function ai_gemini_handle_preview_request($request) {
         );
 
         if ($optimized === false) {
-            // Nếu Files API lỗi -> fallback inline generate
             ai_gemini_log('Files API upload failed, falling back to inlineData: ' . $api->get_last_error(), 'warning');
             $gemini_file_uri  = null;
             $gemini_mime_type = null;
@@ -225,7 +212,7 @@ function ai_gemini_handle_preview_request($request) {
         }
     }
 
-    // ========= GỌI GEMINI TẠO ẢNH =========
+    // ========= GỌI GEMINI =========
 
     if (!empty($gemini_file_uri)) {
         if (empty($gemini_mime_type) || $gemini_mime_type === '0' || $gemini_mime_type === 0) {
@@ -249,11 +236,15 @@ function ai_gemini_handle_preview_request($request) {
         );
     }
 
-    // ========= LƯU ẢNH VÀO SERVER =========
+    // ========= LƯU ẢNH (original 1K + preview 512) =========
 
-    $filename      = ai_gemini_generate_filename('preview');
+    $filename      = ai_gemini_generate_filename('preview'); // ví dụ preview-uuid.png
     $image_binary  = base64_decode($result['image_data']);
-    $stored        = ai_gemini_store_image_versions($image_binary, $filename);
+
+    $t0 = microtime(true);
+    $stored = ai_gemini_store_image_versions($image_binary, $filename);
+    $t1 = microtime(true);
+    ai_gemini_log('ai_gemini_store_image_versions took ' . round(($t1 - $t0) * 1000, 2) . ' ms', 'info');
     
     if (
         !$stored ||
@@ -267,13 +258,16 @@ function ai_gemini_handle_preview_request($request) {
         );
     }
     
-    $preview_url = $stored['preview_url'];
+    $preview_url = $stored['preview_url'];                    // 512px + watermark
 
-    if (empty($original_image_url)) {
-        $original_image_url = $preview_url;
-    }
+    // original_image_url lưu đường dẫn URL tương ứng originals (không public, chủ yếu để tham chiếu)
+    // có thể dựng từ preview_url:
+    $upload_dir = ai_gemini_get_upload_dir();
+    $preview_basename = basename($preview_url); // preview-xxx-preview.jpg
+    $orig_name  = str_replace('-preview.jpg', '-original.' . pathinfo($filename, PATHINFO_EXTENSION), $preview_basename);
+    $original_image_url = $upload_dir['url'] . '/originals/' . $orig_name;
 
-    // Lưu record
+    // Lưu record DB
     $wpdb->insert(
         $table_images,
         [
@@ -281,7 +275,7 @@ function ai_gemini_handle_preview_request($request) {
             'guest_ip'          => $user_id ? null : $ip,
             'original_image_url'=> $original_image_url,
             'preview_image_url' => $preview_url,
-            'full_image_url'    => null,
+            'full_image_url'    => null, // không dùng URL full public nữa
             'prompt'            => $final_prompt_text,
             'style'             => $style_slug,
             'is_unlocked'       => 0,
@@ -296,6 +290,7 @@ function ai_gemini_handle_preview_request($request) {
     
     $image_id = $wpdb->insert_id;
 
+    // image_session_id dùng để tái sử dụng Files API
     $image_session_id_to_return = $image_session_id > 0 ? $image_session_id : $image_id;
     
     if ($credits_used > 0) {

@@ -80,15 +80,16 @@
 
 /* Upload Section */
 .upload-area {
-    border: 2px dashed var(--ai-border);
-    border-radius: var(--ai-radius);
-    padding: 48px;
+    position: relative;
+    border: 2px dashed #ddd;
+    border-radius: 8px;
+    padding: 16px;
     text-align: center;
     cursor: pointer;
-    transition: border-color 0.3s, background 0.3s;
-    position: relative;
 }
-
+.upload-preview {
+    display: none; /* JS bật lên */
+}
 .upload-area:hover,
 .upload-area.dragover {
     border-color: var(--ai-primary);
@@ -116,10 +117,15 @@
     display: inline-block;
 }
 
-.upload-preview img {
+.upload-preview img,
+.preview-image {
     max-width: 100%;
-    max-height: 400px;
-    border-radius: 8px;
+    max-height: 380px; /* hoặc 400–450 tùy layout của bạn */
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto;
 }
 
 .remove-image {

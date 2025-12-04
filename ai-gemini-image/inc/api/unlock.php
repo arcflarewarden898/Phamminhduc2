@@ -23,8 +23,8 @@ add_action('rest_api_init', 'ai_gemini_register_unlock_api');
 function ai_gemini_handle_unlock_request($request) {
     global $wpdb;
     
-    $user_id = get_current_user_id();
-    $image_id = $request->get_param('image_id');
+    $user_id  = get_current_user_id();
+    $image_id = (int) $request->get_param('image_id');
     
     if (empty($image_id)) {
         return new WP_Error(
@@ -34,7 +34,6 @@ function ai_gemini_handle_unlock_request($request) {
         );
     }
     
-    // Get image details
     $table_images = $wpdb->prefix . 'ai_gemini_images';
     $image = $wpdb->get_row($wpdb->prepare(
         "SELECT * FROM $table_images WHERE id = %d", 
@@ -69,28 +68,24 @@ function ai_gemini_handle_unlock_request($request) {
             );
         }
     }
-    
-    // Return if already unlocked
+
+    // Tạo token tải ảnh (1 lần / ngắn hạn)
+    $token        = wp_create_nonce('ai_gemini_download_' . $image_id);
+    $download_url = rest_url('ai/v1/download?image_id=' . $image_id . '&token=' . $token);
+
+    // Nếu đã unlock trước đó -> không trừ credit, chỉ trả lại download_url
     if ($image->is_unlocked) {
-        // Construct full URL if not saved in DB (backward compatibility)
-        $full_url = $image->full_image_url;
-        if (empty($full_url)) {
-            $upload_dir = ai_gemini_get_upload_dir();
-            $filename = basename($image->preview_image_url); // Assuming naming convention matches
-            $full_url = $upload_dir['url'] . '/' . str_replace('-preview', '', $filename);
-        }
-        
         return rest_ensure_response([
-            'success' => true,
-            'full_url' => $full_url,
+            'success'           => true,
+            'download_url'      => $download_url,
             'credits_remaining' => ai_gemini_get_credit($user_id ?: null),
-            'message' => 'Ảnh đã được mở khóa trước đó.'
+            'message'           => 'Ảnh đã được mở khóa trước đó.'
         ]);
     }
     
     // Check credits
     $unlock_cost = (int) get_option('ai_gemini_unlock_credit', 1);
-    $credits = ai_gemini_get_credit($user_id ?: null);
+    $credits     = ai_gemini_get_credit($user_id ?: null);
     
     if ($credits < $unlock_cost) {
         return new WP_Error(
@@ -100,45 +95,33 @@ function ai_gemini_handle_unlock_request($request) {
         );
     }
     
-    // Process unlock
-    // 1. Deduct credits
+    // Trừ credit
     ai_gemini_update_credit(-$unlock_cost, $user_id ?: null);
-    
-    // 2. Generate full image URL (removing -preview suffix logic handled in store function)
-    // Since we stored both at generation time, we just need to find the original path
-    // In preview.php we stored: $stored['full_path'] and $stored['full_url']
-    
-    // Re-construct the full URL based on the preview URL
-    // Expect preview url like: .../uploads/ai-gemini-images/preview-xyz-preview.png
-    // We want: .../uploads/ai-gemini-images/preview-xyz.png
-    
-    $full_url = str_replace('-preview.', '.', $image->preview_image_url);
-    
-    // Update database
+
+    // Mark as unlocked
     $wpdb->update(
         $table_images,
         [
-            'is_unlocked' => 1,
-            'full_image_url' => $full_url,
-            'credits_used' => $image->credits_used + $unlock_cost
+            'is_unlocked'  => 1,
+            'credits_used' => $image->credits_used + $unlock_cost,
         ],
         ['id' => $image_id]
     );
     
     // Log transaction
     ai_gemini_log_transaction([
-        'user_id' => $user_id ?: null,
-        'guest_ip' => $user_id ? null : ai_gemini_get_client_ip(),
-        'type' => 'image_unlock',
-        'amount' => -$unlock_cost,
-        'description' => 'Mở khóa ảnh gốc',
+        'user_id'      => $user_id ?: null,
+        'guest_ip'     => $user_id ? null : ai_gemini_get_client_ip(),
+        'type'         => 'image_unlock',
+        'amount'       => -$unlock_cost,
+        'description'  => 'Mở khóa ảnh gốc',
         'reference_id' => $image_id,
     ]);
     
     return rest_ensure_response([
-        'success' => true,
-        'full_url' => $full_url,
+        'success'           => true,
+        'download_url'      => $download_url,
         'credits_remaining' => ai_gemini_get_credit($user_id ?: null),
-        'message' => 'Mở khóa ảnh thành công!'
+        'message'           => 'Mở khóa ảnh thành công!'
     ]);
 }

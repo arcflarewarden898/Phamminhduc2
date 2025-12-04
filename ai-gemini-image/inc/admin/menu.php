@@ -19,12 +19,12 @@ function ai_gemini_admin_menu() {
 }
 add_action('admin_menu', 'ai_gemini_admin_menu');
 
-// ... (Giữ nguyên hàm ai_gemini_dashboard_page) ...
+// Dashboard
 function ai_gemini_dashboard_page() {
-    // ... (Code cũ Dashboard page) ...
     echo '<div class="wrap"><h1>Tổng Quan</h1><p>Chào mừng đến với AI Gemini.</p></div>';
 }
 
+// Settings
 function ai_gemini_settings_page() {
     if (isset($_POST['ai_gemini_save_settings']) && check_admin_referer('ai_gemini_settings_nonce')) {
         update_option('ai_gemini_api_key', sanitize_text_field($_POST['ai_gemini_api_key']));
@@ -35,17 +35,25 @@ function ai_gemini_settings_page() {
         // Mission Settings
         update_option('ai_gemini_mission_secret', sanitize_text_field($_POST['ai_gemini_mission_secret']));
         update_option('ai_gemini_mission_window', absint($_POST['ai_gemini_mission_window']));
+
+        // Watermark Settings
+        if (isset($_POST['ai_gemini_watermark_text'])) {
+            update_option(
+                'ai_gemini_watermark_text',
+                sanitize_text_field( wp_unslash($_POST['ai_gemini_watermark_text']) )
+            );
+        }
         
         echo '<div class="notice notice-success"><p>Đã lưu cài đặt!</p></div>';
     }
     
-    $api_key = get_option('ai_gemini_api_key', '');
-    $preview_credit = get_option('ai_gemini_preview_credit', 0);
-    $unlock_credit = get_option('ai_gemini_unlock_credit', 1);
-    $free_trial_credits = get_option('ai_gemini_free_trial_credits', 1);
-    $mission_secret = get_option('ai_gemini_mission_secret', '');
-    $mission_window = get_option('ai_gemini_mission_window', 15);
-    
+    $api_key           = get_option('ai_gemini_api_key', '');
+    $preview_credit    = get_option('ai_gemini_preview_credit', 0);
+    $unlock_credit     = get_option('ai_gemini_unlock_credit', 1);
+    $free_trial_credits= get_option('ai_gemini_free_trial_credits', 1);
+    $mission_secret    = get_option('ai_gemini_mission_secret', '');
+    $mission_window    = get_option('ai_gemini_mission_window', 15);
+    $watermark_text    = get_option('ai_gemini_watermark_text', 'AI Gemini Preview');
     ?>
     <div class="wrap">
         <h1>Cài Đặt AI Gemini</h1>
@@ -67,6 +75,18 @@ function ai_gemini_settings_page() {
                 <tr>
                     <th>Credit dùng thử</th>
                     <td><input type="number" name="ai_gemini_free_trial_credits" value="<?php echo esc_attr($free_trial_credits); ?>" min="0" class="small-text"></td>
+                </tr>
+                <tr>
+                    <th>Watermark preview text</th>
+                    <td>
+                        <input type="text"
+                               name="ai_gemini_watermark_text"
+                               value="<?php echo esc_attr($watermark_text); ?>"
+                               class="regular-text">
+                        <p class="description">
+                            Dòng chữ dùng cho watermark chéo trên ảnh preview (kiểu Shutterstock).
+                        </p>
+                    </td>
                 </tr>
             </table>
             <hr>
@@ -94,8 +114,8 @@ function ai_gemini_settings_page() {
     <?php
 }
 
+// Orders page
 function ai_gemini_orders_page() { 
-    // (Giữ nguyên code orders page cũ)
     echo '<div class="wrap"><h1>Đơn Hàng</h1><p>Danh sách đơn hàng...</p></div>'; 
 }
 

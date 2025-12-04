@@ -1,211 +1,237 @@
 <?php
 /**
- * AI Gemini Image Generator - Watermark Functions
- * 
- * Functions for adding and removing watermarks from images.
+ * AI Gemini Image Generator - Watermark & Image Versions
+ *
+ * Lưu:
+ * - original (1K gốc từ Gemini, không watermark, trong originals/ - chặn truy cập trực tiếp)
+ * - preview 512px (JPEG + watermark chéo kiểu Shutterstock, public)
  */
 
 if (!defined('ABSPATH')) exit;
 
 /**
- * Add watermark to image
- * 
- * @param string $image_data Binary image data
- * @param string $watermark_text Optional custom watermark text
- * @return string Watermarked image data
+ * Áp watermark kiểu Shutterstock (pattern chữ chéo phủ ảnh) trực tiếp lên resource GD (preview 512px)
+ *
+ * @param resource|GdImage $image
+ * @param string|null      $watermark_text
  */
-function ai_gemini_add_watermark($image_data, $watermark_text = null) {
-    // Default watermark text - CHANGE THIS TO YOUR DOMAIN
-    $text = $watermark_text ?: get_option('ai_gemini_watermark_text', 'AI Gemini Preview');
-    
-    // Create image from string
-    $image = @imagecreatefromstring($image_data);
-    
-    if (!$image) {
-        ai_gemini_log('Failed to create image from string for watermark', 'error');
-        return $image_data;
+function ai_gemini_apply_watermark_gd($image, $watermark_text = null) {
+    if (!is_resource($image) && !($image instanceof GdImage)) {
+        return;
     }
-    
-    // Get image dimensions
-    $width = imagesx($image);
-    $height = imagesy($image);
-    
-    // Create watermark color (white with transparency)
-    $white = imagecolorallocatealpha($image, 255, 255, 255, 50);
-    $shadow = imagecolorallocatealpha($image, 0, 0, 0, 80);
-    
-    // Try to use a font file, fallback to built-in font
-    $font_file = AI_GEMINI_PLUGIN_DIR . 'assets/fonts/OpenSans-Bold.ttf';
-    
-    if (file_exists($font_file) && function_exists('imagettftext')) {
-        // Calculate font size based on image width
-        $font_size = max(12, min(48, $width / 20));
-        
-        // Get text bounding box
-        $bbox = imagettfbbox($font_size, 0, $font_file, $text);
-        $text_width = abs($bbox[4] - $bbox[0]);
-        $text_height = abs($bbox[5] - $bbox[1]);
-        
-        // Position: bottom-right corner with padding
-        $x = $width - $text_width - 20;
-        $y = $height - 20;
-        
-        // Add shadow
-        imagettftext($image, $font_size, 0, $x + 2, $y + 2, $shadow, $font_file, $text);
-        
-        // Add main text
-        imagettftext($image, $font_size, 0, $x, $y, $white, $font_file, $text);
-        
-        // Add diagonal watermark pattern for security
-        ai_gemini_add_diagonal_watermark($image, $text, $font_file, $font_size / 2);
-    } else {
-        // Fallback to built-in font
-        $font = 5; // Largest built-in font
-        $text_width = imagefontwidth($font) * strlen($text);
-        $text_height = imagefontheight($font);
-        
-        $x = $width - $text_width - 10;
-        $y = $height - $text_height - 10;
-        
-        // Add shadow
-        imagestring($image, $font, $x + 1, $y + 1, $text, $shadow);
-        
-        // Add main text
-        imagestring($image, $font, $x, $y, $text, $white);
-    }
-    
-    // Output image to string
-    ob_start();
-    imagepng($image);
-    $watermarked_data = ob_get_clean();
-    
-    // Clean up
-    imagedestroy($image);
-    
-    return $watermarked_data;
-}
 
-/**
- * Add diagonal watermark pattern
- * 
- * @param resource $image GD image resource
- * @param string $text Watermark text
- * @param string $font_file Path to TTF font
- * @param float $font_size Font size
- */
-function ai_gemini_add_diagonal_watermark($image, $text, $font_file, $font_size) {
-    $width = imagesx($image);
+    $settings = ai_gemini_get_watermark_settings();
+    $text     = $watermark_text ?: (!empty($settings['text']) ? $settings['text'] : 'AI Gemini Preview');
+
+    $width  = imagesx($image);
     $height = imagesy($image);
-    
-    // Very transparent color for diagonal pattern
-    $color = imagecolorallocatealpha($image, 255, 255, 255, 110);
-    
-    // Add diagonal text pattern
-    $angle = 45;
-    $step_x = 300;
-    $step_y = 200;
-    
+
+    // Màu chữ rất trong suốt
+    $color_main   = imagecolorallocatealpha($image, 255, 255, 255, 90);  // trắng mờ
+    $color_shadow = imagecolorallocatealpha($image,   0,   0,   0, 100); // bóng đen mờ
+
+    $font_file = AI_GEMINI_PLUGIN_DIR . 'assets/fonts/OpenSans-Bold.ttf';
+
+    // Fallback nếu không có font TTF
+    if (!file_exists($font_file) || !function_exists('imagettftext')) {
+        $font        = 3;
+        $text_width  = imagefontwidth($font) * strlen($text);
+        $text_height = imagefontheight($font);
+
+        $step_x = max(160, $text_width + 40);
+        $step_y = max(80,  $text_height + 40);
+
+        for ($y = -$step_y; $y < $height + $step_y; $y += $step_y) {
+            for ($x = -$step_x; $x < $width + $step_x; $x += $step_x) {
+                imagestring($image, $font, $x + 1, $y + 1, $text, $color_shadow);
+                imagestring($image, $font, $x,     $y,     $text, $color_main);
+            }
+        }
+        return;
+    }
+
+    $base      = max($width, $height);
+    $font_size = max(14, min(26, $base / 20));
+
+    $bbox   = imagettfbbox($font_size, 0, $font_file, $text);
+    $text_w = abs($bbox[4] - $bbox[0]);
+    $text_h = abs($bbox[5] - $bbox[1]);
+
+    $diag_angle = 30; // watermark nghiêng khoảng 30 độ
+
+    $step_x = max(180, $text_w + 40);
+    $step_y = max(140, $text_h + 40);
+
     for ($y = -$height; $y < $height * 2; $y += $step_y) {
         for ($x = -$width; $x < $width * 2; $x += $step_x) {
-            if (function_exists('imagettftext')) {
-                @imagettftext($image, $font_size, $angle, $x, $y, $color, $font_file, $text);
-            }
+            @imagettftext($image, $font_size, $diag_angle, $x + 2, $y + 2, $color_shadow, $font_file, $text);
+            @imagettftext($image, $font_size, $diag_angle, $x,     $y,     $color_main,   $font_file, $text);
         }
     }
 }
 
 /**
- * Get non-watermarked image for unlocked images
- * 
- * This function retrieves the original non-watermarked image that was stored
- * separately during the initial generation process.
- * 
- * @param int $image_id Image ID from database
- * @return string|false Binary image data or false if not found
+ * Hàm cũ: Add watermark từ binary → binary (fallback)
  */
-function ai_gemini_get_unlocked_image($image_id) {
-    global $wpdb;
-    
-    $table_images = $wpdb->prefix . 'ai_gemini_images';
-    $image = $wpdb->get_row($wpdb->prepare(
-        "SELECT * FROM $table_images WHERE id = %d",
-        $image_id
-    ));
-    
+function ai_gemini_add_watermark($image_data, $watermark_text = null) {
+    $image = @imagecreatefromstring($image_data);
     if (!$image) {
-        return false;
+        ai_gemini_log('Failed to create image from string for watermark', 'error');
+        return $image_data;
     }
-    
-    // Get the stored non-watermarked image path
-    $upload_dir = ai_gemini_get_upload_dir();
-    $original_path = $upload_dir['path'] . '/originals/' . basename($image->preview_image_url);
-    $original_path = str_replace('-preview-', '-original-', $original_path);
-    
-    if (file_exists($original_path)) {
-        return file_get_contents($original_path);
-    }
-    
-    // Fallback: regenerate from API if original not stored
-    // This requires re-calling the Gemini API
-    ai_gemini_log("Original image not found for ID: {$image_id}, regeneration required", 'warning');
-    
-    return false;
+
+    ai_gemini_apply_watermark_gd($image, $watermark_text);
+
+    ob_start();
+    imagejpeg($image, null, 70);
+    $watermarked_data = ob_get_clean();
+
+    imagedestroy($image);
+    return $watermarked_data;
 }
 
 /**
- * Store both watermarked and non-watermarked versions during generation
- * 
- * @param string $image_data Original binary image data from API
- * @param string $preview_filename Filename for preview (watermarked) image
- * @return array Array with 'preview_path' and 'original_path'
+ * Lấy bản gốc (không watermark) từ thư mục originals, dựa theo image record
+ */
+function ai_gemini_get_original_path($image) {
+    $upload_dir = ai_gemini_get_upload_dir();
+
+    // Ưu tiên từ original_image_url, nếu không có thì fallback từ preview_image_url
+    $base_url = !empty($image->original_image_url) ? $image->original_image_url : $image->preview_image_url;
+    $filename = basename($base_url);
+
+    // preview-xxx-preview.jpg -> preview-xxx-original.ext
+    $orig_name = str_replace('-preview.jpg', '-original.' . pathinfo($filename, PATHINFO_EXTENSION), $filename);
+    if ($orig_name === $filename) {
+        // fallback chung: -preview. -> -original.
+        $orig_name = str_replace('-preview.', '-original.', $filename);
+    }
+
+    $original_path = $upload_dir['path'] . '/originals/' . $orig_name;
+    return $original_path;
+}
+
+/**
+ * Store:
+ * - original (1K gốc không watermark, trong originals/)
+ * - preview 512px (jpeg + watermark)
+ *
+ * Không tạo bản full copy (tiết kiệm dung lượng).
+ *
+ * @param string $image_data       Binary từ Gemini
+ * @param string $preview_filename Tên file preview gốc (ví dụ preview-uuid.png)
+ * @return array
  */
 function ai_gemini_store_image_versions($image_data, $preview_filename) {
+    $t_start = microtime(true);
+    ai_gemini_log('ai_gemini_store_image_versions start for ' . $preview_filename, 'info');
+
     $upload_dir = ai_gemini_get_upload_dir();
     
-    // Create originals subdirectory if it doesn't exist
+    // 1. originals/ (bản gốc không watermark, giữ nguyên định dạng)
     $originals_dir = $upload_dir['path'] . '/originals';
     if (!file_exists($originals_dir)) {
         wp_mkdir_p($originals_dir);
-        // Add .htaccess to prevent direct access
+        // Chặn truy cập trực tiếp
         file_put_contents($originals_dir . '/.htaccess', "Deny from all\n");
     }
+
+    $path_info   = pathinfo($preview_filename);
+    $ext         = isset($path_info['extension']) ? $path_info['extension'] : 'png';
+    $name_no_ext = $path_info['filename']; // preview-uuid
+
+    // original: preview-xxx-original.[ext]
+    $original_filename = $name_no_ext . '-original.' . $ext;
+    // preview:  preview-xxx-preview.jpg
+    $preview_jpg_name  = $name_no_ext . '-preview.jpg';
     
-    // Save original (non-watermarked) version in protected directory
-    $original_filename = str_replace('-preview-', '-original-', $preview_filename);
+    // Lưu original
+    $t0 = microtime(true);
     $original_path = $originals_dir . '/' . $original_filename;
     file_put_contents($original_path, $image_data);
+    $t1 = microtime(true);
+    ai_gemini_log('Original save took ' . round(($t1 - $t0) * 1000, 2) . ' ms', 'info');
     
-    // Create watermarked preview version
-    $watermarked_data = ai_gemini_add_watermark($image_data);
-    $preview_path = $upload_dir['path'] . '/' . $preview_filename;
-    file_put_contents($preview_path, $watermarked_data);
-    
+    // 2. Tạo preview 512px (jpeg + watermark)
+    $src = @imagecreatefromstring($image_data);
+    $preview_path = null;
+    $preview_url  = null;
+
+    if ($src) {
+        $width  = imagesx($src);
+        $height = imagesy($src);
+        ai_gemini_log('Source size: ' . $width . 'x' . $height, 'info');
+
+        $t4 = microtime(true);
+
+        $max_preview = 512;
+        $long_side   = max($width, $height);
+        $scale_prev  = ($long_side > $max_preview) ? ($max_preview / $long_side) : 1.0;
+
+        $prev_w = (int) round($width  * $scale_prev);
+        $prev_h = (int) round($height * $scale_prev);
+
+        $preview_img = imagecreatetruecolor($prev_w, $prev_h);
+        imagecopyresampled($preview_img, $src, 0, 0, 0, 0, $prev_w, $prev_h, $width, $height);
+
+        ai_gemini_apply_watermark_gd($preview_img);
+
+        $preview_path = $upload_dir['path'] . '/' . $preview_jpg_name;
+        $preview_url  = $upload_dir['url']  . '/' . $preview_jpg_name;
+
+        ob_start();
+        imagejpeg($preview_img, null, 70);
+        $preview_data = ob_get_clean();
+        file_put_contents($preview_path, $preview_data);
+
+        imagedestroy($preview_img);
+        imagedestroy($src);
+
+        $t5 = microtime(true);
+        ai_gemini_log(
+            'Preview 512px (resize + Shutterstock watermark + save) took ' .
+            round(($t5 - $t4) * 1000, 2) . ' ms; final size ' .
+            $prev_w . 'x' . $prev_h,
+            'info'
+        );
+    } else {
+        ai_gemini_log('Failed to create GD image from image_data in store_image_versions', 'error');
+        $watermarked_data = ai_gemini_add_watermark($image_data);
+        $preview_path     = $upload_dir['path'] . '/' . $preview_jpg_name;
+        $preview_url      = $upload_dir['url']  . '/' . $preview_jpg_name;
+        file_put_contents($preview_path, $watermarked_data);
+    }
+
+    $t_end = microtime(true);
+    ai_gemini_log(
+        'ai_gemini_store_image_versions total took ' .
+        round(($t_end - $t_start) * 1000, 2) . ' ms',
+        'info'
+    );
+
     return [
         'preview_path' => $preview_path,
-        'preview_url' => $upload_dir['url'] . '/' . $preview_filename,
-        'original_path' => $original_path,
+        'preview_url'  => $preview_url,
+        'original_path'=> $original_path,
+        'full_path'    => null,
+        'full_url'     => null, // KHÔNG DÙNG NỮA
     ];
 }
 
 /**
  * Get watermark settings
- * 
- * @return array Watermark settings
  */
 function ai_gemini_get_watermark_settings() {
     return [
-        'text' => get_option('ai_gemini_watermark_text', 'AI Gemini Preview'),
+        'text'     => get_option('ai_gemini_watermark_text', 'AI Gemini Preview'),
         'position' => get_option('ai_gemini_watermark_position', 'bottom-right'),
-        'opacity' => (int) get_option('ai_gemini_watermark_opacity', 50),
+        'opacity'  => (int) get_option('ai_gemini_watermark_opacity', 50),
         'diagonal' => get_option('ai_gemini_watermark_diagonal', 'yes') === 'yes',
     ];
 }
 
 /**
  * Update watermark settings
- * 
- * @param array $settings New settings
- * @return bool Success status
  */
 function ai_gemini_update_watermark_settings($settings) {
     if (isset($settings['text'])) {
@@ -222,46 +248,4 @@ function ai_gemini_update_watermark_settings($settings) {
     }
     
     return true;
-}
-
-/**
- * Create preview image with heavy watermark
- * 
- * @param string $image_data Binary image data
- * @return string Preview image data
- */
-function ai_gemini_create_preview_image($image_data) {
-    $image = @imagecreatefromstring($image_data);
-    
-    if (!$image) {
-        return $image_data;
-    }
-    
-    $width = imagesx($image);
-    $height = imagesy($image);
-    
-    // Reduce quality for preview
-    // Resize to smaller dimension if too large
-    $max_preview_size = 800;
-    
-    if ($width > $max_preview_size || $height > $max_preview_size) {
-        $ratio = min($max_preview_size / $width, $max_preview_size / $height);
-        $new_width = (int) ($width * $ratio);
-        $new_height = (int) ($height * $ratio);
-        
-        $resized = imagecreatetruecolor($new_width, $new_height);
-        imagecopyresampled($resized, $image, 0, 0, 0, 0, $new_width, $new_height, $width, $height);
-        imagedestroy($image);
-        $image = $resized;
-    }
-    
-    // Output reduced quality
-    ob_start();
-    imagepng($image, null, 8); // Higher compression
-    $preview_data = ob_get_clean();
-    
-    imagedestroy($image);
-    
-    // Add watermark to preview
-    return ai_gemini_add_watermark($preview_data);
 }
