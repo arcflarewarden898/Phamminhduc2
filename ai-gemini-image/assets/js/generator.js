@@ -5,7 +5,7 @@
         config: window.AIGeminiConfig || {},
         currentImageData: null,
         currentImageId: null,
-        currentImageSessionId: null, // <-- NEW: ID phiên ảnh, dùng lại giữa nhiều preview
+        currentImageSessionId: null, // ID phiên ảnh, dùng lại giữa nhiều preview
         currentMission: null,
         pendingAction: null, // Lưu hành động đang dở dang (generate/unlock) để retry
 
@@ -18,7 +18,7 @@
             }
             this.bindEvents();
             this.initDropzone();
-            this.restoreImageFromStorage(); // Khôi phục ảnh nếu có trong localStorage
+            this.restoreImageFromStorage(); // Khôi phục ảnh + session nếu có trong localStorage
         },
         
         bindEvents: function() {
@@ -63,7 +63,6 @@
             // Error Box Buttons
             $('#btn-retry').on('click', function() { 
                 self.hideError(); 
-                // Nếu không phải lỗi hết tiền thì reset form, nếu hết tiền thì người dùng chọn làm nv hoặc đóng
             });
 
             // MISSION EVENTS
@@ -77,7 +76,7 @@
             });
         },
 
-        // ========= LƯU / KHÔI PHỤC ẢNH GIỮA CÁC URL =========
+        // ========= LƯU / KHÔI PHỤC ẢNH + SESSION GIỮA CÁC URL =========
 
         /**
          * Khôi phục ảnh từ localStorage khi trang load.
@@ -96,6 +95,8 @@
 
             if (!saved || !saved.dataUrl) return;
 
+            console.log('[Gemini] Restore from storage', saved);
+
             // Giới hạn sống 24h cho ảnh lưu
             var maxAgeMs = 24 * 60 * 60 * 1000;
             if (saved.createdAt && (Date.now() - saved.createdAt > maxAgeMs)) {
@@ -107,8 +108,8 @@
             this.showPreview(saved.dataUrl);
             $('#btn-generate').prop('disabled', false);
 
-            // Nếu bạn muốn, sau này ta có thể lưu cả image_session_id vào localStorage ở đây
             if (saved.imageSessionId) {
+                console.log('[Gemini] Restored image_session_id from storage:', saved.imageSessionId);
                 this.currentImageSessionId = saved.imageSessionId;
             }
         },
@@ -124,6 +125,7 @@
                     createdAt: Date.now(),
                     imageSessionId: this.currentImageSessionId || null
                 };
+                console.log('[Gemini] Save to storage', payload);
                 localStorage.setItem(this.storageKey, JSON.stringify(payload));
             } catch (e) {
                 // Bị chặn/quota đầy -> bỏ qua
@@ -154,20 +156,83 @@
             });
         },
 
+        /**
+         * Chọn file từ input / drag-drop:
+         * - Đọc file bằng FileReader
+         * - Resize client-side về maxDim ~1200px
+         * - Xuất JPEG quality 0.7
+         * - Lưu vào currentImageData + localStorage
+         */
         handleFileSelect: function(file) {
             var self = this;
+
             if(file.size > self.config.max_file_size) { 
                 self.showError(self.config.strings.error_file_size); 
                 return; 
             }
+
             var reader = new FileReader();
-            reader.onload = function(e) { 
-                self.currentImageData      = e.target.result; 
-                self.currentImageSessionId = null; // ảnh mới -> session mới
-                self.showPreview(e.target.result); 
-                $('#btn-generate').prop('disabled', false); 
-                self.saveImageToStorage(e.target.result); 
+            reader.onload = function(e) {
+                var dataUrl = e.target.result; // data:image/...;base64,...
+
+                var img = new Image();
+                img.onload = function() {
+                    var maxDim = 1200; // Kích thước lớn nhất (chiều rộng hoặc cao)
+                    var w = img.width;
+                    var h = img.height;
+
+                    var scale = 1;
+                    if (w > h && w > maxDim) {
+                        scale = maxDim / w;
+                    } else if (h >= w && h > maxDim) {
+                        scale = maxDim / h;
+                    }
+
+                    var newW = Math.round(w * scale);
+                    var newH = Math.round(h * scale);
+
+                    // Nếu ảnh đã nhỏ hơn maxDim thì không cần resize
+                    if (scale === 1) {
+                        console.log('[Gemini] Client-side image small enough, no resize:', w + 'x' + h);
+                        self.currentImageData      = dataUrl;
+                        self.currentImageSessionId = null;
+                        self.showPreview(dataUrl);
+                        $('#btn-generate').prop('disabled', false); 
+                        self.saveImageToStorage(dataUrl);
+                        return;
+                    }
+
+                    var canvas = document.createElement('canvas');
+                    canvas.width  = newW;
+                    canvas.height = newH;
+
+                    var ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, newW, newH);
+
+                    // Xuất ra JPEG 70%
+                    var compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+
+                    console.log('[Gemini] Client-side resized from', w + 'x' + h, 'to', newW + 'x' + newH);
+
+                    self.currentImageData      = compressedDataUrl;
+                    self.currentImageSessionId = null; // Ảnh mới -> session mới
+
+                    self.showPreview(compressedDataUrl);
+                    $('#btn-generate').prop('disabled', false); 
+                    self.saveImageToStorage(compressedDataUrl);
+                };
+
+                img.onerror = function() {
+                    self.showError(self.config.strings.error_upload || 'Không thể đọc ảnh.');
+                };
+
+                img.src = dataUrl;
             };
+
+            reader.onerror = function() {
+                self.showError(self.config.strings.error_upload || 'Không thể đọc ảnh.');
+            };
+
             reader.readAsDataURL(file);
         },
 
@@ -183,7 +248,7 @@
          */
         removeImage: function(clearStorage) { 
             this.currentImageData       = null; 
-            this.currentImageId         = null;
+            this.currentImageId         = null; 
             this.currentImageSessionId  = null;
             $('#image-input').val(''); 
             $('#upload-preview').hide(); 
@@ -198,7 +263,7 @@
 
         generatePreview: function() {
             var self = this;
-            if (!this.currentImageData) { 
+            if (!this.currentImageData && !this.currentImageSessionId) { 
                 this.showError(this.config.strings.error_upload); 
                 return; 
             }
@@ -208,19 +273,35 @@
             $('#btn-generate .btn-loading').show(); 
             $('#btn-generate').prop('disabled', true);
             
-            var img = this.currentImageData.includes(',') ? this.currentImageData.split(',')[1] : this.currentImageData;
+            var payload = {
+                style: this.selectedStyle,
+                prompt: $('#custom-prompt').val()
+            };
+
+            // Nếu đã có session id -> ưu tiên gửi session
+            if (this.currentImageSessionId) {
+                console.log('[Gemini] generatePreview() using existing image_session_id:', this.currentImageSessionId);
+                payload.image_session_id = this.currentImageSessionId;
+            } else {
+                // Chưa có session -> phải gửi ảnh base64 lần đầu
+                if (!this.currentImageData) {
+                    this.showError(this.config.strings.error_upload);
+                    $('#btn-generate .btn-text').show(); 
+                    $('#btn-generate .btn-loading').hide(); 
+                    $('#btn-generate').prop('disabled', false);
+                    return;
+                }
+                var img = this.currentImageData.includes(',') ? this.currentImageData.split(',')[1] : this.currentImageData;
+                console.log('[Gemini] generatePreview() first time, sending image base64');
+                payload.image = img;
+            }
             
             $.ajax({
                 url: this.config.api_preview,
                 method: 'POST',
                 headers: { 'X-WP-Nonce': this.config.nonce },
                 contentType: 'application/json',
-                data: JSON.stringify({ 
-                    image: img, 
-                    image_session_id: this.currentImageSessionId || null,
-                    style: this.selectedStyle, 
-                    prompt: $('#custom-prompt').val() 
-                }),
+                data: JSON.stringify(payload),
                 success: function(res) { self.handlePreviewSuccess(res); },
                 error: function(xhr) { self.handleAPIError(xhr); },
                 complete: function() { 
@@ -233,8 +314,14 @@
         
         handlePreviewSuccess: function(res) {
             if (res.success && res.preview_url) {
-                this.currentImageId        = res.image_id;
-                this.currentImageSessionId = res.image_session_id || this.currentImageSessionId || null;
+                this.currentImageId = res.image_id;
+
+                // Luôn lấy sessionId từ backend nếu có
+                var newSessionId = res.image_session_id || null;
+                if (newSessionId) {
+                    console.log('[Gemini] Backend returned image_session_id:', newSessionId);
+                    this.currentImageSessionId = newSessionId;
+                }
 
                 // Cập nhật lại localStorage để lưu luôn session id
                 if (this.currentImageData) {
