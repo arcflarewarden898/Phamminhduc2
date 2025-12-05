@@ -42,7 +42,7 @@ $ai_gemini_includes = [
     'inc/api/preview.php',
     'inc/api/unlock.php',
     'inc/api/credit.php',
-    'inc/api/mission.php',
+    'inc/api/mission.php', // <--- FILE MỚI: API nhiệm vụ
 	'inc/api/download.php',
     
     // Credit System

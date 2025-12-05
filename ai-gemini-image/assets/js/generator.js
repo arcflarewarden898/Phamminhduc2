@@ -78,10 +78,6 @@
 
         // ========= LƯU / KHÔI PHỤC ẢNH + SESSION GIỮA CÁC URL =========
 
-        /**
-         * Khôi phục ảnh từ localStorage khi trang load.
-         * Dùng chung giữa mọi URL trên cùng domain.
-         */
         restoreImageFromStorage: function() {
             var saved = null;
             try {
@@ -97,7 +93,6 @@
 
             console.log('[Gemini] Restore from storage', saved);
 
-            // Giới hạn sống 24h cho ảnh lưu
             var maxAgeMs = 24 * 60 * 60 * 1000;
             if (saved.createdAt && (Date.now() - saved.createdAt > maxAgeMs)) {
                 this.clearImageFromStorage();
@@ -114,10 +109,6 @@
             }
         },
 
-        /**
-         * Lưu ảnh hiện tại vào localStorage.
-         * @param {string} dataUrl
-         */
         saveImageToStorage: function(dataUrl) {
             try {
                 var payload = {
@@ -132,9 +123,6 @@
             }
         },
 
-        /**
-         * Xóa ảnh khỏi localStorage.
-         */
         clearImageFromStorage: function() {
             try {
                 localStorage.removeItem(this.storageKey);
@@ -156,13 +144,6 @@
             });
         },
 
-        /**
-         * Chọn file từ input / drag-drop:
-         * - Đọc file bằng FileReader
-         * - Resize client-side về maxDim ~1200px
-         * - Xuất JPEG quality 0.7
-         * - Lưu vào currentImageData + localStorage
-         */
         handleFileSelect: function(file) {
             var self = this;
 
@@ -173,11 +154,11 @@
 
             var reader = new FileReader();
             reader.onload = function(e) {
-                var dataUrl = e.target.result; // data:image/...;base64,...
+                var dataUrl = e.target.result;
 
                 var img = new Image();
                 img.onload = function() {
-                    var maxDim = 1200; // Kích thước lớn nhất (chiều rộng hoặc cao)
+                    var maxDim = 1200;
                     var w = img.width;
                     var h = img.height;
 
@@ -191,7 +172,6 @@
                     var newW = Math.round(w * scale);
                     var newH = Math.round(h * scale);
 
-                    // Nếu ảnh đã nhỏ hơn maxDim thì không cần resize
                     if (scale === 1) {
                         console.log('[Gemini] Client-side image small enough, no resize:', w + 'x' + h);
                         self.currentImageData      = dataUrl;
@@ -209,13 +189,12 @@
                     var ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, newW, newH);
 
-                    // Xuất ra JPEG 70%
                     var compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7);
 
                     console.log('[Gemini] Client-side resized from', w + 'x' + h, 'to', newW + 'x' + newH);
 
                     self.currentImageData      = compressedDataUrl;
-                    self.currentImageSessionId = null; // Ảnh mới -> session mới
+                    self.currentImageSessionId = null;
 
                     self.showPreview(compressedDataUrl);
                     $('#btn-generate').prop('disabled', false); 
@@ -242,10 +221,6 @@
             $('#upload-preview').show(); 
         },
 
-        /**
-         * Xóa ảnh khỏi UI
-         * @param {boolean} clearStorage
-         */
         removeImage: function(clearStorage) { 
             this.currentImageData       = null; 
             this.currentImageId         = null; 
@@ -278,12 +253,10 @@
                 prompt: $('#custom-prompt').val()
             };
 
-            // Nếu đã có session id -> ưu tiên gửi session
             if (this.currentImageSessionId) {
                 console.log('[Gemini] generatePreview() using existing image_session_id:', this.currentImageSessionId);
                 payload.image_session_id = this.currentImageSessionId;
             } else {
-                // Chưa có session -> phải gửi ảnh base64 lần đầu
                 if (!this.currentImageData) {
                     this.showError(this.config.strings.error_upload);
                     $('#btn-generate .btn-text').show(); 
@@ -316,14 +289,12 @@
             if (res.success && res.preview_url) {
                 this.currentImageId = res.image_id;
 
-                // Luôn lấy sessionId từ backend nếu có
                 var newSessionId = res.image_session_id || null;
                 if (newSessionId) {
                     console.log('[Gemini] Backend returned image_session_id:', newSessionId);
                     this.currentImageSessionId = newSessionId;
                 }
 
-                // Cập nhật lại localStorage để lưu luôn session id
                 if (this.currentImageData) {
                     this.saveImageToStorage(this.currentImageData);
                 }
@@ -357,14 +328,43 @@
                 data: JSON.stringify({ image_id: this.currentImageId }),
                 success: function(res) { 
                     if(res.success){ 
-                        $('#unlocked-image').attr('src', res.full_url); 
-                        $('#btn-download').attr('href', res.full_url);
+                        // Gán URL download cho nút "Tải Ảnh"
+                        if (res.download_url) {
+                            $('#btn-download').attr('href', res.download_url);
+                            $('#btn-download').attr('target', '_blank');
+                        } else if (res.full_url) {
+                            $('#btn-download').attr('href', res.full_url);
+                            $('#btn-download').attr('target', '_blank');
+                        }
+
+                        // Mặc định hiển thị preview trong khi chờ load full
+                        var unlockedSrc = $('#result-image').attr('src');
+                        $('#unlocked-image').attr('src', unlockedSrc); 
+
+                        // Thử load ảnh full 1K (không watermark) bằng blob URL để xem inline
+                        if (res.download_url) {
+                            fetch(res.download_url, { credentials: 'include' })
+                                .then(function(response) {
+                                    if (!response.ok) throw new Error('Failed to load full image');
+                                    return response.blob();
+                                })
+                                .then(function(blob) {
+                                    var url = URL.createObjectURL(blob);
+                                    $('#unlocked-image').attr('src', url);
+                                })
+                                .catch(function(err) {
+                                    console.error('[Gemini] Load full image error:', err);
+                                    // fallback: vẫn dùng preview
+                                });
+                        }
+
                         $('#gemini-result').hide(); 
                         $('#gemini-unlocked').show();
                         if(res.credits_remaining !== undefined) 
                             $('#gemini-credits-display').text(res.credits_remaining);
                     } else { 
                         self.showError(res.message); 
+                        $btn.prop('disabled', false).text(txt);
                     }
                 },
                 error: function(xhr) { 
@@ -412,9 +412,6 @@
             $('.gemini-generator-form').show(); 
         },
 
-        /**
-         * Reset toàn bộ trạng thái và xóa cả localStorage.
-         */
         resetAll: function() { 
             this.currentImageData       = null; 
             this.currentImageId         = null; 
@@ -456,7 +453,7 @@
                         <h3 style="margin-top:0; color:#0073aa;">${mission.title}</h3>
                         <div style="margin:15px 0; font-size:15px; line-height:1.6; max-height:300px; overflow-y:auto;">${mission.steps}</div>
                         <div style="background:#f0f0f1; padding:15px; border-radius:8px; text-align:center;">
-                            <input type="text" id="mission-code" placeholder="Nhập mã 6 số" maxlength="6" style="width:80%; font-size:20px; letter-spacing:3px; text-align:center; padding:8px; border-radius:4px; border:1px solid #ccd0d4;">
+                            <input type="text" id="mission-code" placeholder="Nhập mã 6 số" maxlength="6" style="width:80%; font-size:20px; letter-spacing:3px; text-align:center; padding:8px; border-radius:4px; border:1px solid #ccc;">
                             <div style="margin-top:8px; color:#28a745; font-weight:bold;">+${mission.reward} Credit</div>
                         </div>
                         <button id="btn-verify-mission" style="width:100%; margin-top:15px; padding:12px; background:#0073aa; color:#fff; border:none; border-radius:5px; font-size:16px; cursor:pointer;">Xác Nhận</button>
