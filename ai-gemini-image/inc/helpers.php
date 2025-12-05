@@ -374,3 +374,64 @@ function ai_gemini_get_prompt_by_key($key) {
         return $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE slug = %s", $key));
     }
 }
+
+/**
+ * --- NEW FUNCTION FOR USER IMAGES (LỊCH SỬ ẢNH) ---
+ */
+
+/**
+ * Lấy danh sách ảnh đã tạo của user hoặc guest (theo IP)
+ *
+ * @param int|null $user_id  ID user (nếu đã đăng nhập), null nếu guest
+ * @param int      $limit    Số lượng bản ghi tối đa
+ *
+ * @return array|object[]    Mảng đối tượng ảnh
+ */
+function ai_gemini_get_user_images($user_id = null, $limit = 20) {
+    global $wpdb;
+
+    $table_name = $wpdb->prefix . 'ai_gemini_images';
+    $limit      = max(1, (int) $limit);
+
+    // Nếu bảng chưa tồn tại (site mới cài, chưa chạy install), trả về rỗng cho an toàn
+    if ($wpdb->get_var("SHOW TABLES LIKE '{$table_name}'") !== $table_name) {
+        return [];
+    }
+
+    if ($user_id) {
+        // User đã đăng nhập: lọc theo user_id
+        $sql = $wpdb->prepare(
+            "SELECT * FROM {$table_name}
+             WHERE user_id = %d
+             ORDER BY created_at DESC
+             LIMIT %d",
+            $user_id,
+            $limit
+        );
+    } else {
+        // Guest: lọc theo IP
+        $ip = ai_gemini_get_client_ip();
+
+        // Nếu không lấy được IP thì trả về rỗng để tránh query linh tinh
+        if (empty($ip)) {
+            return [];
+        }
+
+        $sql = $wpdb->prepare(
+            "SELECT * FROM {$table_name}
+             WHERE guest_ip = %s
+             ORDER BY created_at DESC
+             LIMIT %d",
+            $ip,
+            $limit
+        );
+    }
+
+    $results = $wpdb->get_results($sql);
+
+    if (!is_array($results)) {
+        return [];
+    }
+
+    return $results;
+}
